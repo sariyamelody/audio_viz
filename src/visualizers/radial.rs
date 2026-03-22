@@ -12,9 +12,12 @@
 
 use std::f32::consts::PI;
 use crate::visualizer::{
+    merge_config,
     pad_frame, specgrad, status_bar,
     AudioFrame, SpectrumBars, TermSize, Visualizer,
 };
+
+const CONFIG_VERSION: u64 = 1;
 
 pub struct RadialViz {
     bars:   SpectrumBars,
@@ -25,6 +28,8 @@ pub struct RadialViz {
     theta:  Vec<Vec<f32>>,
     cached_rows: usize,
     cached_cols: usize,
+    // ── Config fields ──────────────────────────────────────────────────────
+    gain: f32,
 }
 
 impl RadialViz {
@@ -36,13 +41,10 @@ impl RadialViz {
             theta:       Vec::new(),
             cached_rows: 0,
             cached_cols: 0,
+            gain:        1.0,
         }
     }
 
-    /// Rebuild the polar grid cache.
-    ///
-    /// Character cells are ~2× taller than wide, so horizontal distances are
-    /// scaled by 0.5 to make the figure appear circular rather than oval.
     fn precompute(&mut self, rows: usize, cols: usize) {
         let cy = rows as f32 / 2.0;
         let cx = cols as f32 / 2.0;
@@ -81,6 +83,37 @@ impl Visualizer for RadialViz {
     fn name(&self)        -> &str { "radial" }
     fn description(&self) -> &str { "Polar spectrum radiating from the centre" }
 
+    fn get_default_config(&self) -> String {
+        serde_json::json!({
+            "visualizer_name": "radial",
+            "version": CONFIG_VERSION,
+            "config": [
+                {
+                    "name": "gain",
+                    "display_name": "Gain",
+                    "type": "float",
+                    "value": 1.0,
+                    "min": 0.0,
+                    "max": 4.0
+                }
+            ]
+        }).to_string()
+    }
+
+    fn set_config(&mut self, json: &str) -> Result<String, String> {
+        let merged = merge_config(&self.get_default_config(), json);
+        let val: serde_json::Value = serde_json::from_str(&merged)
+            .map_err(|e| format!("JSON parse error: {e}"))?;
+        if let Some(config) = val["config"].as_array() {
+            for entry in config {
+                if entry["name"].as_str() == Some("gain") {
+                    self.gain = entry["value"].as_f64().unwrap_or(1.0) as f32;
+                }
+            }
+        }
+        Ok(merged)
+    }
+
     fn on_resize(&mut self, size: TermSize) {
         self.bars.resize(size.cols as usize);
         self.precompute(size.rows as usize, size.cols as usize);
@@ -94,7 +127,12 @@ impl Visualizer for RadialViz {
             self.precompute(rows, cols);
         }
         self.bars.resize(cols);
-        self.bars.update(&audio.fft, dt);
+        if (self.gain - 1.0).abs() > f32::EPSILON {
+            let scaled: Vec<f32> = audio.fft.iter().map(|v| v * self.gain).collect();
+            self.bars.update(&scaled, dt);
+        } else {
+            self.bars.update(&audio.fft, dt);
+        }
     }
 
     fn render(&self, size: TermSize, fps: f32) -> Vec<String> {
@@ -117,12 +155,10 @@ impl Visualizer for RadialViz {
                 let rn = if c < row_rnorm.len() { row_rnorm[c] } else { 999.0 };
                 let th = if c < row_theta.len() { row_theta[c] } else { 0.0 };
 
-                // Map angle to bar index
-                let bi   = ((th + PI) / (2.0 * PI) * n as f32) as usize % n;
+                let bi    = ((th + PI) / (2.0 * PI) * n as f32) as usize % n;
                 let bar_h = self.bars.smoothed[bi];
 
                 if rn < bar_h && rn < 1.0 {
-                    // Active cell: pick character by density, colour by angle
                     let frac = bi as f32 / (n - 1).max(1) as f32;
                     let code = specgrad(frac);
                     let ch   = if       rn < 0.12 { '@' }
@@ -134,7 +170,6 @@ impl Visualizer for RadialViz {
                     let bold = if rn < 0.35 { "\x1b[1m" } else { "" };
                     line.push_str(&format!("{bold}\x1b[38;5;{code}m{ch}\x1b[0m"));
                 } else {
-                    // Inactive: draw crosshair axes
                     let on_x = r == cy2;
                     let on_y = c == cx2;
                     if on_x && on_y {

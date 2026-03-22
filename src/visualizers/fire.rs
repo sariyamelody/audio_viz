@@ -7,18 +7,15 @@
 ///
 /// Colour palette: near-black → deep red → orange → yellow → white.
 /// Characters:     space → . → ` → ^ → ' → | → * → # → $ → @
-///
-/// Implementation notes
-/// ────────────────────
-/// In Python this used numpy vectorised operations on 2D arrays.  In Rust
-/// we use plain Vec<Vec<f32>> (row-major).  The heat propagation loop is
-/// written to be cache-friendly (inner loop over columns).
 
 use rand::Rng;
 use crate::visualizer::{
+    merge_config,
     pad_frame, status_bar,
     AudioFrame, SpectrumBars, TermSize, Visualizer,
 };
+
+const CONFIG_VERSION: u64 = 1;
 
 const FIRE_PAL:   &[u8]  = &[232, 52, 88, 124, 160, 196, 202, 208, 214, 220,
                               226, 227, 228, 229, 230, 231];
@@ -29,6 +26,8 @@ pub struct FireViz {
     heat:   Vec<Vec<f32>>,
     bars:   SpectrumBars,
     source: String,
+    // ── Config fields ──────────────────────────────────────────────────────
+    gain:   f32,
 }
 
 impl FireViz {
@@ -37,6 +36,7 @@ impl FireViz {
             heat:   Vec::new(),
             bars:   SpectrumBars::new(80),
             source: source.to_string(),
+            gain:   1.0,
         }
     }
 
@@ -51,6 +51,37 @@ impl Visualizer for FireViz {
     fn name(&self)        -> &str { "fire" }
     fn description(&self) -> &str { "Audio-reactive ASCII fire" }
 
+    fn get_default_config(&self) -> String {
+        serde_json::json!({
+            "visualizer_name": "fire",
+            "version": CONFIG_VERSION,
+            "config": [
+                {
+                    "name": "gain",
+                    "display_name": "Gain",
+                    "type": "float",
+                    "value": 1.0,
+                    "min": 0.0,
+                    "max": 4.0
+                }
+            ]
+        }).to_string()
+    }
+
+    fn set_config(&mut self, json: &str) -> Result<String, String> {
+        let merged = merge_config(&self.get_default_config(), json);
+        let val: serde_json::Value = serde_json::from_str(&merged)
+            .map_err(|e| format!("JSON parse error: {e}"))?;
+        if let Some(config) = val["config"].as_array() {
+            for entry in config {
+                if entry["name"].as_str() == Some("gain") {
+                    self.gain = entry["value"].as_f64().unwrap_or(1.0) as f32;
+                }
+            }
+        }
+        Ok(merged)
+    }
+
     fn on_resize(&mut self, size: TermSize) {
         self.bars.resize(size.cols as usize);
         self.ensure_size(size.rows as usize, size.cols as usize);
@@ -61,11 +92,16 @@ impl Visualizer for FireViz {
         let cols = size.cols as usize;
 
         self.bars.resize(cols);
-        self.bars.update(&audio.fft, dt);
+        if (self.gain - 1.0).abs() > f32::EPSILON {
+            let scaled: Vec<f32> = audio.fft.iter().map(|v| v * self.gain).collect();
+            self.bars.update(&scaled, dt);
+        } else {
+            self.bars.update(&audio.fft, dt);
+        }
         self.ensure_size(rows, cols);
 
         let n   = self.bars.smoothed.len().max(1);
-        let bot = rows.saturating_sub(2); // bottom seeding row
+        let bot = rows.saturating_sub(2);
 
         let bass = self.bars.smoothed[..n / 6].iter().copied().sum::<f32>()
             / (n / 6).max(1) as f32;
@@ -74,7 +110,6 @@ impl Visualizer for FireViz {
 
         let mut rng = rand::thread_rng();
 
-        // Seed bottom row with bass + mid energy + column-wise spectrum variation
         let base = (0.12 + bass * 1.3 + mid * 0.25).min(1.0);
         for c in 0..cols {
             let band  = (c * n / cols.max(1)).min(n - 1);
@@ -83,9 +118,6 @@ impl Visualizer for FireViz {
             self.heat[bot][c] = (base * noise + col_e * 0.4).min(1.0);
         }
 
-        // Propagate heat upward: each cell = weighted average of the three
-        // cells in the row below, minus a small random flicker.
-        // Process rows from bot-1 down to 0.
         for r in (0..bot).rev() {
             for c in 0..cols {
                 let below   = self.heat[r + 1][c];

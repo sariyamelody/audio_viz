@@ -12,14 +12,6 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0.102"
 # Cross-platform audio capture.
-# On Linux cpal supports multiple host backends; we select at runtime:
-#   PipeWire  (via cpal's pipewire feature)  — preferred
-#   PulseAudio (via cpal's jack feature off; pulse is built-in to cpal on Linux)
-#   ALSA      — fallback if neither PW nor PA is available
-# On macOS cpal uses CoreAudio automatically.
-# default-features = false disables the JACK backend, which probes for a JACK
-# server on every device enumeration and prints noisy connection errors when
-# JACK is not running.  We only need the ALSA backend on Linux.
 cpal     = { version = "0.15", default-features = false }
 # Fast FFT
 rustfft  = "6"
@@ -29,6 +21,8 @@ crossterm = "0.28"
 clap     = { version = "4", features = ["derive"] }
 # Random numbers (matrix rain, phase dots, fire noise, lissajous)
 rand     = "0.8"
+# JSON config serialization / deserialization
+serde_json = "1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Used by stderr_silence::Silencer to suppress ALSA/JACK C-library diagnostics
