@@ -37,66 +37,62 @@ use visualizer::{
 
 // ── ALSA / JACK stderr silencer ──────────────────────────────────────────────
 //
-// ALSA's C library and the JACK client library both write diagnostic messages
-// directly to file-descriptor 2, bypassing Rust's stderr.  They appear during
-// device enumeration and stream construction even when everything works:
+// ALSA's C library and the JACK client library write diagnostic messages
+// directly to file-descriptor 2, bypassing Rust's stderr — including from
+// background threads cpal spawns, so a scoped redirect on the main thread
+// is not sufficient.
 //
-//   ALSA lib pcm_dmix.c: The dmix plugin supports only playback stream
-//   Cannot connect to server socket err = No such file or directory   (JACK)
-//   jack server is not running or cannot be started
+// Strategy: redirect fd 2 -> /dev/null permanently before the first cpal call.
+// Our own messages are written through the real stderr fd we saved beforehand,
+// via the diag!() macro below.
 //
-// The only reliable suppression is a libc-level dup2 redirect of fd 2 to
-// /dev/null for the duration of the noisy call, then restoring it.
-// On non-Linux platforms this guard is a zero-cost no-op.
+// On non-Linux platforms this is a no-op and diag!() falls back to eprintln!.
 
 #[cfg(target_os = "linux")]
 mod stderr_silence {
     use std::fs::OpenOptions;
     use std::os::unix::io::IntoRawFd;
+    use std::sync::atomic::{AtomicI32, Ordering};
 
-    /// RAII guard: redirects fd 2 -> /dev/null, restores on drop.
-    /// Use for short-lived suppression during noisy initialisation calls.
-    pub struct Silencer { saved: libc::c_int }
+    // Saved copy of the original fd 2.  -1 means suppress() not yet called.
+    static SAVED_STDERR: AtomicI32 = AtomicI32::new(-1);
 
-    impl Silencer {
-        pub fn new() -> Self {
-            let saved = unsafe { libc::dup(2) };
-            if saved < 0 { return Silencer { saved }; }
-            if let Ok(dev) = OpenOptions::new().write(true).open("/dev/null") {
-                unsafe { libc::dup2(dev.into_raw_fd(), 2); }
-            }
-            Silencer { saved }
-        }
-    }
-    impl Drop for Silencer {
-        fn drop(&mut self) {
-            if self.saved >= 0 {
-                unsafe { libc::dup2(self.saved, 2); libc::close(self.saved); }
-            }
-        }
-    }
-
-    /// Permanently redirect fd 2 -> /dev/null for the rest of the process.
-    ///
-    /// Call this once the stream is running and all user-visible error messages
-    /// have already been printed.  The ALSA/JACK C libraries write to fd 2 from
-    /// the audio callback thread, so a RAII guard on the main thread cannot
-    /// suppress them -- only a permanent redirect works.
-    pub fn silence_permanently() {
+    /// Redirect fd 2 -> /dev/null permanently.
+    /// Call before the first cpal call and before spawning any threads.
+    /// Safe to call multiple times; subsequent calls are no-ops.
+    pub fn suppress() {
+        if SAVED_STDERR.load(Ordering::Relaxed) >= 0 { return; }
+        let saved = unsafe { libc::dup(2) };
+        if saved < 0 { return; }
+        SAVED_STDERR.store(saved, Ordering::Relaxed);
         if let Ok(dev) = OpenOptions::new().write(true).open("/dev/null") {
             unsafe { libc::dup2(dev.into_raw_fd(), 2); }
         }
+    }
+
+    /// Write a message to the real terminal stderr, bypassing the redirect.
+    pub fn write_err(msg: &str) {
+        let fd = SAVED_STDERR.load(Ordering::Relaxed);
+        if fd < 0 { return; }
+        let b = msg.as_bytes();
+        unsafe { libc::write(fd, b.as_ptr() as *const libc::c_void, b.len()); }
     }
 }
 
 #[cfg(not(target_os = "linux"))]
 mod stderr_silence {
-    pub struct Silencer;
-    impl Silencer { #[inline(always)] pub fn new() -> Self { Silencer } }
-    #[inline(always)] pub fn silence_permanently() {}
+    pub fn suppress() {}
+    pub fn write_err(msg: &str) { eprintln!("{msg}"); }
 }
 
-use stderr_silence::Silencer;
+/// Print a diagnostic message to the real terminal stderr.
+/// Works even after stderr_silence::suppress() has redirected fd 2.
+macro_rules! diag {
+    ($($arg:tt)*) => {
+        stderr_silence::write_err(&format!("{}
+", format_args!($($arg)*)))
+    };
+}
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
 
@@ -284,8 +280,8 @@ fn find_best_device(host: &cpal::Host) -> Option<cpal::Device> {
             }
         }
         // macOS fallback: default input with a warning
-        eprintln!("audio: no loopback device found.");
-        eprintln!("       Install BlackHole for system audio: https://existential.audio/blackhole/");
+        diag!("audio: no loopback device found.");
+        diag!("       Install BlackHole for system audio: https://existential.audio/blackhole/");
     }
 
     host.default_input_device()
@@ -385,12 +381,14 @@ fn main() -> anyhow::Result<()> {
     }
 
     // ── Audio host ────────────────────────────────────────────────────────────
-    // Silence ALSA/JACK diagnostics emitted during host initialisation.
-    let host = { let _s = Silencer::new(); select_host() };
+    // Silence fd 2 permanently before the first cpal call.
+    // All subsequent ALSA/JACK noise goes to /dev/null.
+    // Our own messages use diag!() which writes to the saved real fd.
+    stderr_silence::suppress();
+    let host = select_host();
 
     // ── --list-devices ────────────────────────────────────────────────────────
     if cli.list_devices {
-        let _s = Silencer::new();
         println!("Available input devices (host: {}):", host.id().name());
         for (i, d) in host.input_devices()?.enumerate() {
             println!("  [{}] {}", i, d.name().unwrap_or_else(|_| "?".into()));
@@ -399,10 +397,10 @@ fn main() -> anyhow::Result<()> {
         // the visualizer won't start without --device.
         #[cfg(target_os = "linux")]
         if !pulse_device_present(&host) {
-            eprintln!();
-            eprintln!("WARNING: The ALSA PulseAudio plugin (\"pulse\" device) was not found.");
-            eprintln!("         System audio capture will not work without it.");
-            eprintln!("         Install with: sudo apt install libasound2-plugins");
+            diag!("");
+            diag!("WARNING: The ALSA PulseAudio plugin (\"pulse\" device) was not found.");
+            diag!("         System audio capture will not work without it.");
+            diag!("         Install with: sudo apt install libasound2-plugins");
         }
         return Ok(());
     }
@@ -421,7 +419,7 @@ fn main() -> anyhow::Result<()> {
             #[cfg(target_os = "linux")]
             let monitor = prepare_pulse_env(&host)?; // exits with error if pulse absent
             #[cfg(target_os = "linux")]
-            eprintln!("audio: monitor source → {monitor}");
+            diag!("audio: monitor source → {monitor}");
 
             find_best_device(&host)
                 .ok_or_else(|| anyhow::anyhow!(
@@ -466,8 +464,7 @@ fn main() -> anyhow::Result<()> {
 
     // The cpal stream callback writes interleaved f32 samples into the ring.
     // We convert to mono by averaging all channels.
-    // Silence ALSA/JACK diagnostics emitted during stream construction.
-    let stream = { let _s = Silencer::new(); device.build_input_stream(
+    let stream = device.build_input_stream(
         &config,
         move |data: &[f32], _| {
             let mut buf = ring2.lock().unwrap();
@@ -489,14 +486,8 @@ fn main() -> anyhow::Result<()> {
         },
         |err| eprintln!("[audio error] {err}"),
         None,
-    )? }; // Silencer dropped here — fd 2 restored
+    )?;
     stream.play()?;
-
-    // Permanently silence fd 2 now that the stream is running.
-    // The ALSA/JACK C libraries emit diagnostics from the audio callback
-    // thread; a scoped RAII guard on the main thread cannot catch those.
-    // All user-visible error messages have already been printed above.
-    stderr_silence::silence_permanently();
 
     // ── Select and initialise visualizer ──────────────────────────────────────
     let viz_name = cli.visualizer.to_lowercase();
@@ -522,6 +513,7 @@ fn main() -> anyhow::Result<()> {
             "radial"    => Box::new(visualizers::radial   ::RadialViz   ::new(&device_name)),
             "lissajous" => Box::new(visualizers::lissajous::LissajousViz::new(&device_name)),
             "fire"      => Box::new(visualizers::fire     ::FireViz     ::new(&device_name)),
+            "vu"        => Box::new(visualizers::vu       ::VuViz       ::new(&device_name)),
             // Visualizers added via build.rs that are not listed above will use
             // the placeholder from register() (source = "").
             // To inject the device name, add a match arm above.
