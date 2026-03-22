@@ -3,21 +3,33 @@ name: Build
 on:
   push:
     branches: [main]
+    tags:     ['v*']
 
 jobs:
+  # ── Per-platform build ────────────────────────────────────────────────────
   build:
     strategy:
       matrix:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact: audio_viz-linux-x86_64
+            artifact_bin:    audio_viz-linux-x86_64
+            artifact_deb:    audio_viz-linux-x86_64-deb
+            artifact_appimg: audio_viz-linux-x86_64-appimage
+            make_deb:        true
+            make_appimage:   true
+
           - os: macos-latest
             target: x86_64-apple-darwin
-            artifact: audio_viz-macos-x86_64
+            artifact_bin:    audio_viz-macos-x86_64
+            make_deb:        false
+            make_appimage:   false
+
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact: audio_viz-macos-aarch64
+            artifact_bin:    audio_viz-macos-aarch64
+            make_deb:        false
+            make_appimage:   false
 
     runs-on: ${{ matrix.os }}
 
@@ -48,9 +60,147 @@ jobs:
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Upload binary
+      # ── Raw binary ──────────────────────────────────────────────────────────
+      - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
+          name: ${{ matrix.artifact_bin }}
           path: target/${{ matrix.target }}/release/audio_viz
           if-no-files-found: error
+
+      # ── Debian package (Linux only) ─────────────────────────────────────────
+      - name: Build .deb package
+        if: matrix.make_deb
+        run: |
+          BIN=target/${{ matrix.target }}/release/audio_viz
+          VERSION=$(cargo metadata --no-deps --format-version 1 \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['packages'][0]['version'])")
+
+          PKG=audio_viz_${VERSION}_amd64
+          mkdir -p ${PKG}/DEBIAN
+          mkdir -p ${PKG}/usr/bin
+          mkdir -p ${PKG}/usr/share/doc/audio_viz
+
+          cp ${BIN} ${PKG}/usr/bin/audio_viz
+          chmod 755 ${PKG}/usr/bin/audio_viz
+
+          cat > ${PKG}/DEBIAN/control << CONTROL
+          Package: audio-viz
+          Version: ${VERSION}
+          Section: sound
+          Priority: optional
+          Architecture: amd64
+          Depends: libasound2
+          Maintainer: audio_viz contributors
+          Description: Multi-mode terminal audio visualizer
+           A terminal-based audio visualizer with multiple display modes
+           including spectrum analyzer, oscilloscope, matrix rain, radial
+           spectrum, Lissajous XY scope, fire, and VU meter.
+          CONTROL
+
+          printf 'See the project repository for license information.\n' \
+            > ${PKG}/usr/share/doc/audio_viz/copyright
+
+          dpkg-deb --build --root-owner-group ${PKG}
+
+      - name: Upload .deb artifact
+        if: matrix.make_deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_deb }}
+          path: "*.deb"
+          if-no-files-found: error
+
+      # ── AppImage (Linux only) ───────────────────────────────────────────────
+      - name: Build AppImage
+        if: matrix.make_appimage
+        run: |
+          BIN=target/${{ matrix.target }}/release/audio_viz
+
+          curl -L -o appimagetool \
+            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          ./appimagetool --appimage-extract
+          # squashfs-root/AppRun is the real binary; use it directly to avoid
+          # the FUSE requirement that GitHub runners do not satisfy.
+          APPIMAGETOOL=./squashfs-root/AppRun
+
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+
+          cp ${BIN} AppDir/usr/bin/audio_viz
+
+          cat > AppDir/usr/share/applications/audio_viz.desktop << DESKTOP
+          [Desktop Entry]
+          Name=audio_viz
+          Exec=audio_viz
+          Icon=audio_viz
+          Type=Application
+          Categories=AudioVideo;Audio;
+          Terminal=true
+          DESKTOP
+
+          cp AppDir/usr/share/applications/audio_viz.desktop AppDir/audio_viz.desktop
+
+          # 1x1 placeholder PNG — replace with a real icon if desired
+          echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" \
+            | base64 -d > AppDir/usr/share/icons/hicolor/256x256/apps/audio_viz.png
+          cp AppDir/usr/share/icons/hicolor/256x256/apps/audio_viz.png AppDir/audio_viz.png
+
+          cat > AppDir/AppRun << 'APPRUN'
+          #!/bin/sh
+          exec "$(dirname "$(readlink -f "$0")")/usr/bin/audio_viz" "$@"
+          APPRUN
+          chmod +x AppDir/AppRun
+
+          ARCH=x86_64 ${APPIMAGETOOL} AppDir audio_viz-x86_64.AppImage
+
+      - name: Upload AppImage artifact
+        if: matrix.make_appimage
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_appimg }}
+          path: "*.AppImage"
+          if-no-files-found: error
+
+  # ── GitHub Release (tag pushes only) ───────────────────────────────────────
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Prepare release assets
+        run: |
+          mkdir release_assets
+
+          cp dist/audio_viz-linux-x86_64/audio_viz    release_assets/audio_viz-linux-x86_64
+          cp dist/audio_viz-macos-x86_64/audio_viz    release_assets/audio_viz-macos-x86_64
+          cp dist/audio_viz-macos-aarch64/audio_viz   release_assets/audio_viz-macos-aarch64
+          cp dist/audio_viz-linux-x86_64-deb/*.deb    release_assets/
+          cp dist/audio_viz-linux-x86_64-appimage/*.AppImage release_assets/
+
+          git archive --format=tar.gz \
+            --prefix=audio_viz-${GITHUB_REF_NAME}/ \
+            -o release_assets/audio_viz-${GITHUB_REF_NAME}-source.tar.gz \
+            HEAD
+
+          ls -lh release_assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "audio_viz ${{ github.ref_name }}"
+          generate_release_notes: true
+          files: release_assets/*
