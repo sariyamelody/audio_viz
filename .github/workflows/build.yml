@@ -2,12 +2,57 @@ name: Build
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'dev/*']
     tags:     ['v*']
 
 jobs:
-  # ── Per-platform build ────────────────────────────────────────────────────
+  # ── CI build — runs on every branch ────────────────────────────────────────
+  # Linux x86_64 + WASM only: fast feedback without macOS runner cost.
+  ci:
+    if: github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/')
+    strategy:
+      matrix:
+        include:
+          - name: linux
+            os:   ubuntu-latest
+            run: |
+              sudo apt-get update && sudo apt-get install -y libasound2-dev
+              cargo build --target x86_64-unknown-linux-gnu
+
+          - name: wasm
+            os:   ubuntu-latest
+            run: |
+              curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+              cd web && wasm-pack build --target web --out-dir pkg --dev
+
+    runs-on: ${{ matrix.os }}
+    name: ci / ${{ matrix.name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu,wasm32-unknown-unknown
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ci-${{ matrix.name }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ci-${{ matrix.name }}-cargo-
+
+      - name: Build
+        run: ${{ matrix.run }}
+
+  # ── Full build — runs on main and tags ──────────────────────────────────────
   build:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
     strategy:
       matrix:
         include:
@@ -204,3 +249,65 @@ jobs:
           name: "audio_viz ${{ github.ref_name }}"
           generate_release_notes: true
           files: release_assets/*
+
+  # ── Web / GitHub Pages ────────────────────────────────────────────────────
+  web:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: wasm-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: wasm-cargo-
+
+      - name: Build WASM package
+        working-directory: web
+        run: wasm-pack build --target web --out-dir pkg --release
+
+      - name: Assemble site
+        run: |
+          mkdir site
+          cp web/index.html  site/
+          cp web/main.js     site/
+          cp web/audio.js    site/
+          cp web/renderer.js site/
+          cp -r web/pkg      site/pkg
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  # ── Deploy to GitHub Pages (main branch only) ─────────────────────────────
+  deploy-pages:
+    needs: web
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages:    write
+      id-token: write
+    environment:
+      name: github-pages
+      url:  ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
