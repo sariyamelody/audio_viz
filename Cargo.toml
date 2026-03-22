@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "web"]
+resolver = "2"
+
 [package]
 name        = "audio_viz"
 version     = "0.1.0"
@@ -5,28 +9,36 @@ edition     = "2024"
 description = "Multi-mode terminal audio visualizer"
 build       = "build.rs"
 
-[[bin]]
+[lib]
 name = "audio_viz"
-path = "src/main.rs"
+path = "src/lib.rs"
+
+[[bin]]
+name              = "audio_viz"
+path              = "src/main.rs"
+required-features = ["terminal"]
+
+[features]
+# The "terminal" feature pulls in every dependency that doesn't compile on
+# wasm32.  It is enabled by default so that `cargo build` (no flags) still
+# produces the full terminal binary.  The WASM crate depends on this crate
+# without activating it, which keeps crossterm/cpal/clap/libc out of the
+# WASM build.
+default  = ["terminal"]
+terminal = ["dep:crossterm", "dep:cpal", "dep:clap", "dep:anyhow", "dep:libc"]
 
 [dependencies]
-anyhow = "1.0.102"
-# Cross-platform audio capture.
-cpal     = { version = "0.15", default-features = false }
-# Fast FFT
-rustfft  = "6"
-# Terminal control: raw mode, ANSI colours, cursor, resize events
-crossterm = "0.28"
-# CLI argument parsing
-clap     = { version = "4", features = ["derive"] }
-# Random numbers (matrix rain, phase dots, fire noise, lissajous)
-rand     = "0.8"
-# JSON config serialization / deserialization
+rustfft    = "6"
+rand       = "0.8"
 serde_json = "1"
 
-[target.'cfg(target_os = "linux")'.dependencies]
-# Used by stderr_silence::Silencer to suppress ALSA/JACK C-library diagnostics
-libc     = "0.2"
+# Terminal-only dependencies, excluded from the WASM build
+anyhow    = { version = "1.0.102", optional = true }
+cpal      = { version = "0.15", default-features = false, optional = true }
+crossterm = { version = "0.28", optional = true }
+clap      = { version = "4", features = ["derive"], optional = true }
+
+libc = { version = "0.2", optional = true }
 
 [build-dependencies]
 # build.rs only uses std — no extra deps needed
