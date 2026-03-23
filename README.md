@@ -4,6 +4,8 @@ A multi-mode terminal audio visualizer written in Rust. Captures system audio
 and renders real-time ASCII visualizations in your terminal using 256-colour
 ANSI escape codes.
 
+**Try the Web Version:** [https://nitepone.github.io/audio_viz/](https://nitepone.github.io/audio_viz/)
+
 <p align="center">
   <img src="img/img1.png" width="49%" alt="Lissajous XY scope with beat-driven rotation, planets, and spectrum shell" />
   <img src="img/img2.png" width="49%" alt="Dual-channel oscilloscope showing left and right waveforms" />
