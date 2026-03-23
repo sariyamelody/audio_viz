@@ -33,12 +33,13 @@ let fpsSmooth  = 0;
 async function initWasm() {
   wasm = await init();
 
-  // Populate the visualizer selector
+  // Populate the visualizer selector, defaulting to scope
   const names = JSON.parse(WebViz.all_names());
   for (const name of names) {
     const opt  = document.createElement('option');
     opt.value  = name;
     opt.text   = name;
+    if (name === 'scope') opt.selected = true;
     vizSelect.appendChild(opt);
   }
 
