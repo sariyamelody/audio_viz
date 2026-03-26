@@ -13,6 +13,31 @@
 ///   bass energy    → spawn rate and explosion radius
 ///   beat transient → burst of 1–3 extra missiles
 ///   overall level  → travel speed; quiet = repair; loud = window flicker
+///
+/// ── Table of contents ────────────────────────────────────────────────────────
+///
+///   L28   Constants (CONFIG_VERSION, SPARK_LEN, SPARK_CHARS)
+///   L30   ThemeData struct + 10 theme constant blocks (classic … candy)
+///   L127  theme_data() — name → ThemeData lookup
+///   L212  ColMeta struct — per-column city metadata
+///   L223  win_lit()    — deterministic window on/off
+///   L231  star_at()    — deterministic star field
+///   L245  Data types   — Missile, Interceptor, Explosion, Smoke
+///   L287  MissilesViz struct + fields
+///   L328  MissilesViz::new()
+///   L367  regen_city() — LCG-based city layout, density-aware
+///   L442  blast_city() — apply explosion damage to column heights
+///   L459  random_dx()  — tiered diagonal distribution
+///   L484  city_health()
+///   L494  stats_line() — rich HUD: sparkline, city bar, counters, fps
+///   L571  Visualizer impl
+///   L574    name() / description()
+///   L577    get_default_config()
+///   L681    set_config()
+///   L714    on_resize()
+///   L721    tick()     — spawn, move, intercept, explode, repair, audio
+///   L941    render()   — grid init, stars, city, missiles+trails, HUD
+///   L1171 register()
 
 // ── Index: ThemeData@32 · theme_data@129 · entities@247 · MissilesViz@291 · new@330 · regen_city@373 · impl@579 · config@583 · set_config@687 · tick@727 · render@941 · register@1173
 use std::collections::VecDeque;
