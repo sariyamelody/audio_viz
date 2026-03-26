@@ -324,7 +324,7 @@ struct SettingsOverlay {
 struct ConfigEntry {
     name:         String,
     display_name: String,
-    kind:         String,       // "float" | "int" | "enum"
+    kind:         String,       // "float" | "int" | "enum" | "bool"
     value:        EntryValue,
     min:          Option<f64>,
     max:          Option<f64>,
@@ -335,6 +335,7 @@ enum EntryValue {
     Float(f64),
     Int(i64),
     Enum(String),
+    Bool(bool),
 }
 
 impl EntryValue {
@@ -343,6 +344,7 @@ impl EntryValue {
             EntryValue::Float(v) => serde_json::json!(v),
             EntryValue::Int(v)   => serde_json::json!(v),
             EntryValue::Enum(v)  => serde_json::json!(v),
+            EntryValue::Bool(v)  => serde_json::json!(v),
         }
     }
 
@@ -351,6 +353,7 @@ impl EntryValue {
             EntryValue::Float(v) => format!("{:.2}", v),
             EntryValue::Int(v)   => format!("{}", v),
             EntryValue::Enum(v)  => v.clone(),
+            EntryValue::Bool(v)  => if *v { "true" } else { "false" }.to_string(),
         }
     }
 }
@@ -404,6 +407,8 @@ impl SettingsOverlay {
                 "enum"  => EntryValue::Enum(
                                 live_val.as_str().unwrap_or(
                                     e["value"].as_str().unwrap_or("")).to_string()),
+                "bool"  => EntryValue::Bool(live_val.as_bool().unwrap_or(
+                                e["value"].as_bool().unwrap_or(false))),
                 _       => return None,
             };
 
@@ -699,6 +704,20 @@ impl SettingsOverlay {
                 //   Focused:   [<value>]
                 //   Unfocused:  <value>
 
+                // Bool fields render as a checkbox — no editing mode, no bounds hint.
+                if entry.kind == "bool" {
+                    let checked = matches!(&entry.value, EntryValue::Bool(true));
+                    let checkbox = if checked {
+                        "\x1b[1m\x1b[38;5;82m[✓]\x1b[0m"
+                    } else {
+                        "\x1b[38;5;244m[ ]\x1b[0m"
+                    };
+                    let hint = if focused { "\x1b[2m<>\x1b[0m" } else { "  " };
+                    let gap = val_w.saturating_sub(3); // "[ ]" / "[✓]" = 3 visible chars
+                    let checkbox_col = format!("{}{}", checkbox, " ".repeat(gap));
+                    return format!("{}{}{}", label_col, checkbox_col, hint);
+                }
+
                 // Build the optional bounds hint string (visible chars only).
                 let bounds_hint: Option<String> = if focused && self.editing && entry.kind != "enum" {
                     match (entry.min, entry.max) {
@@ -782,10 +801,14 @@ impl SettingsOverlay {
             // Save / cancel row — hint adapts to current editing state
             r if r == 3 + n => {
                 let popup_open = self.popup.is_some();
+                let focused_bool = self.entries.get(self.cursor)
+                    .map_or(false, |e| e.kind == "bool");
                 let save_hint = if self.editing {
                     " [↵] Confirm  [s] Save & close  [Esc] Cancel "
                 } else if popup_open {
                     " [↵] Select  [Esc] Close menu "
+                } else if focused_bool {
+                    " [Space] Toggle  [s/↵] Save & close  [Esc] Cancel "
                 } else {
                     " [Space] Edit  [s/↵] Save & close  [Esc] Cancel "
                 };
@@ -1530,6 +1553,7 @@ fn main() -> anyhow::Result<()> {
                         }
 
                         // Space: universal "Edit" key.
+                        // Bool   — toggle the value directly.
                         // Enum   — open the browse popup (or confirm if already open).
                         // Float/Int — enter text-edit mode, clearing any previous input.
                         KeyCode::Char(' ') => {
@@ -1537,6 +1561,11 @@ fn main() -> anyhow::Result<()> {
                                 .map(|e| e.kind.as_str())
                                 .unwrap_or("");
                             match kind {
+                                "bool" => {
+                                    if let EntryValue::Bool(v) = &mut ov.entries[ov.cursor].value {
+                                        *v = !*v;
+                                    }
+                                }
                                 "enum" => {
                                     if let Some(hi) = ov.popup {
                                         // Popup open: confirm highlighted variant
@@ -1566,10 +1595,15 @@ fn main() -> anyhow::Result<()> {
                         }
 
                         KeyCode::Left | KeyCode::Right => {
-                            let is_enum = ov.entries.get(ov.cursor)
-                                .map_or(false, |e| e.kind == "enum");
+                            let kind = ov.entries.get(ov.cursor)
+                                .map(|e| e.kind.as_str())
+                                .unwrap_or("");
 
-                            if is_enum {
+                            if kind == "bool" {
+                                if let EntryValue::Bool(v) = &mut ov.entries[ov.cursor].value {
+                                    *v = !*v;
+                                }
+                            } else if kind == "enum" {
                                 let nv = ov.entries[ov.cursor].variants.len();
                                 if nv == 0 { /* nothing */ } else if let Some(ref mut hi) = ov.popup {
                                     // Popup open: move highlight within popup

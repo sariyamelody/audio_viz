@@ -228,6 +228,7 @@ fn validate_config_value(
             let Some(variants) = schema["variants"].as_array() else { return false; };
             variants.iter().any(|var| var.as_str() == Some(v_str))
         }
+        "bool" => value.as_bool().is_some(),
         _ => false,
     }
 }
