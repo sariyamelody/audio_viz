@@ -890,8 +890,13 @@ impl VizPicker {
     /// Move cursor up within the current level.
     fn up(&mut self) {
         match &mut self.level {
-            PickerLevel::Category { cursor } => { if *cursor > 0 { *cursor -= 1; } }
-            PickerLevel::Visualizer { cursor, .. } => { if *cursor > 0 { *cursor -= 1; } }
+            PickerLevel::Category { cursor } => {
+                if *cursor > 0 { *cursor -= 1; } else { *cursor = self.categories.len().saturating_sub(1); }
+            }
+            PickerLevel::Visualizer { category_idx, cursor } => {
+                let n = self.categories[*category_idx].1.len();
+                if *cursor > 0 { *cursor -= 1; } else { *cursor = n.saturating_sub(1); }
+            }
         }
     }
 
@@ -899,10 +904,11 @@ impl VizPicker {
     fn down(&mut self) {
         match &mut self.level {
             PickerLevel::Category { cursor } => {
-                if *cursor + 1 < self.categories.len() { *cursor += 1; }
+                *cursor = (*cursor + 1) % self.categories.len().max(1);
             }
             PickerLevel::Visualizer { category_idx, cursor } => {
-                if *cursor + 1 < self.categories[*category_idx].1.len() { *cursor += 1; }
+                let n = self.categories[*category_idx].1.len();
+                *cursor = (*cursor + 1) % n.max(1);
             }
         }
     }
@@ -1537,7 +1543,7 @@ fn main() -> anyhow::Result<()> {
                                 ov.text_buf.clear();
                                 ov.editing = false;
                                 ov.err_msg = None;
-                                if ov.cursor > 0 { ov.cursor -= 1; }
+                                if ov.cursor > 0 { ov.cursor -= 1; } else { ov.cursor = n.saturating_sub(1); }
                             }
                         }
                         KeyCode::Down => {
