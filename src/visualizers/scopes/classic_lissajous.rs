@@ -15,6 +15,7 @@
 ///  theme       — phosphor color palette: "green" (classic P31), "amber"
 ///                (P3), or "white" (P4 — sharp fade through grey).
 
+// ── Index: ClassicLissajousViz@27 · new@40 · impl@74 · config@78 · set_config@111 · tick@129 · render@173 · register@223
 use crate::visualizer::{
     merge_config,
     hline, pad_frame, status_bar, title_line,

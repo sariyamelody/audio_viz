@@ -20,36 +20,29 @@
 ///   neon     — electric pink → purple → cyan → white
 ///   sunset   — violet dusk through coral into golden amber
 
+// ── Index: scheme_color@38 · PlasmaViz@51 · new@76 · impl@105 · config@109 · set_config@157 · tick@180 · render@200 · register@277
 use std::f32::consts::PI;
 
 use crate::visualizer::{
     merge_config,
     pad_frame, specgrad, status_bar,
-    AudioFrame, TermSize, Visualizer, FFT_SIZE, SAMPLE_RATE,
+    AudioFrame, TermSize, Visualizer, FFT_SIZE,
+};
+use crate::visualizer_utils::{
+    freq_to_bin, palette_lookup, rms, smooth_asymmetric,
+    PALETTE_FIRE, PALETTE_OCEAN, PALETTE_NEON, PALETTE_SUNSET,
 };
 
 const CONFIG_VERSION: u64 = 1;
 
-// ── Color palettes ────────────────────────────────────────────────────────────
-
-const FIRE:    &[u8] = &[52, 88, 124, 160, 196, 202, 208, 214, 220, 226, 227, 228, 229, 230, 231];
-const OCEAN:   &[u8] = &[17, 18, 19, 20, 21, 27, 33, 39, 45, 51, 50, 49, 159, 195, 231];
-const NEON:    &[u8] = &[201, 200, 165, 129, 93, 57, 21, 27, 33, 39, 45, 51, 87, 123, 159, 231];
-const SUNSET:  &[u8] = &[57, 93, 129, 165, 201, 200, 198, 197, 196, 202, 208, 214, 220, 226, 229];
-
-fn palette_lookup(frac: f32, pal: &[u8]) -> u8 {
-    let i = (frac.clamp(0.0, 1.0) * (pal.len() - 1) as f32) as usize;
-    pal[i.min(pal.len() - 1)]
-}
-
 fn scheme_color(frac: f32, shift: f32, scheme: &str) -> u8 {
     let s = (frac + shift).fract();
     match scheme {
-        "fire"   => palette_lookup(s, FIRE),
-        "ocean"  => palette_lookup(s, OCEAN),
-        "neon"   => palette_lookup(s, NEON),
-        "sunset" => palette_lookup(s, SUNSET),
-        _        => specgrad(s),  // "spectrum"
+        "fire"   => palette_lookup(s, PALETTE_FIRE),
+        "ocean"  => palette_lookup(s, PALETTE_OCEAN),
+        "neon"   => palette_lookup(s, PALETTE_NEON),
+        "sunset" => palette_lookup(s, PALETTE_SUNSET),
+        _        => specgrad(s),
     }
 }
 
@@ -81,13 +74,12 @@ pub struct PlasmaViz {
 
 impl PlasmaViz {
     pub fn new(source: &str) -> Self {
-        let freq_res = SAMPLE_RATE as f32 / FFT_SIZE as f32;
-        let n_bins   = FFT_SIZE / 2 + 1;
+        let n_bins = FFT_SIZE / 2 + 1;
 
-        let bass_lo = ((20.0    / freq_res) as usize).clamp(1, n_bins - 1);
-        let bass_hi = ((250.0   / freq_res) as usize).clamp(bass_lo + 1, n_bins - 1);
-        let mid_hi  = ((4_000.0 / freq_res) as usize).clamp(bass_hi + 1, n_bins - 1);
-        let high_hi = ((12_000.0/ freq_res) as usize).clamp(mid_hi  + 1, n_bins - 1);
+        let bass_lo = freq_to_bin(20.0, n_bins);
+        let bass_hi = freq_to_bin(250.0, n_bins).max(bass_lo + 1);
+        let mid_hi  = freq_to_bin(4_000.0, n_bins).max(bass_hi + 1);
+        let high_hi = freq_to_bin(12_000.0, n_bins).max(mid_hi + 1);
 
         Self {
             t:            0.0,
@@ -105,11 +97,6 @@ impl PlasmaViz {
             turbulence:   0.3,
             color_scheme: "spectrum".to_string(),
         }
-    }
-
-    fn rms(s: &[f32]) -> f32 {
-        if s.is_empty() { return 0.0; }
-        (s.iter().map(|v| v * v).sum::<f32>() / s.len() as f32).sqrt()
     }
 }
 
@@ -196,28 +183,18 @@ impl Visualizer for PlasmaViz {
         let fft = &audio.fft;
         let n   = fft.len();
 
-        let raw_bass = if self.bass_hi < n {
-            Self::rms(&fft[self.bass_lo..self.bass_hi])
-        } else { 0.0 };
-        let raw_mid = if self.mid_hi < n {
-            Self::rms(&fft[self.bass_hi..self.mid_hi])
-        } else { 0.0 };
-        let raw_high = if self.high_hi < n {
-            Self::rms(&fft[self.mid_hi..self.high_hi])
-        } else { 0.0 };
+        let raw_bass = if self.bass_hi < n { rms(&fft[self.bass_lo..self.bass_hi]) } else { 0.0 };
+        let raw_mid  = if self.mid_hi  < n { rms(&fft[self.bass_hi..self.mid_hi])  } else { 0.0 };
+        let raw_high = if self.high_hi < n { rms(&fft[self.mid_hi..self.high_hi])  } else { 0.0 };
 
         // Scale by gain, then smooth with fast-attack / slow-release
         let scaled_bass = (raw_bass  * self.gain).min(1.0);
         let scaled_mid  = (raw_mid   * self.gain).min(1.0);
         let scaled_high = (raw_high  * self.gain).min(1.0);
 
-        let a_bass = if scaled_bass > self.bass { 0.40 } else { 0.92 };
-        let a_mid  = if scaled_mid  > self.mid  { 0.40 } else { 0.92 };
-        let a_high = if scaled_high > self.high { 0.35 } else { 0.92 };
-
-        self.bass = a_bass * self.bass + (1.0 - a_bass) * scaled_bass;
-        self.mid  = a_mid  * self.mid  + (1.0 - a_mid)  * scaled_mid;
-        self.high = a_high * self.high + (1.0 - a_high) * scaled_high;
+        self.bass = smooth_asymmetric(self.bass, scaled_bass, 0.40, 0.92);
+        self.mid  = smooth_asymmetric(self.mid,  scaled_mid,  0.40, 0.92);
+        self.high = smooth_asymmetric(self.high, scaled_high, 0.35, 0.92);
     }
 
     fn render(&self, size: TermSize, fps: f32) -> Vec<String> {

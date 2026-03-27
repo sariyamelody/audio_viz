@@ -8,12 +8,14 @@
 /// Colour palette: near-black → deep red → orange → yellow → white.
 /// Characters:     space → . → ` → ^ → ' → | → * → # → $ → @
 
+// ── Index: FireViz@26 · new@36 · impl@52 · config@56 · set_config@73 · tick@92 · render@130 · register@164
 use rand::Rng;
 use crate::visualizer::{
     merge_config,
     pad_frame, status_bar,
     AudioFrame, SpectrumBars, TermSize, Visualizer,
 };
+use crate::visualizer_utils::with_gained_fft;
 
 const CONFIG_VERSION: u64 = 1;
 
@@ -92,12 +94,7 @@ impl Visualizer for FireViz {
         let cols = size.cols as usize;
 
         self.bars.resize(cols);
-        if (self.gain - 1.0).abs() > f32::EPSILON {
-            let scaled: Vec<f32> = audio.fft.iter().map(|v| v * self.gain).collect();
-            self.bars.update(&scaled, dt);
-        } else {
-            self.bars.update(&audio.fft, dt);
-        }
+        with_gained_fft(&audio.fft, self.gain, |fft| self.bars.update(fft, dt));
         self.ensure_size(rows, cols);
 
         let n   = self.bars.smoothed.len().max(1);

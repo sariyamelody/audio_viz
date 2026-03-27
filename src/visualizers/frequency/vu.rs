@@ -25,11 +25,13 @@
 ///  4. Run `cargo build` — build.rs scans src/visualizers/*.rs automatically
 ///     and adds your visualizer to the registry.  No other files need editing.
 
+// ── Index: level_colour@47 · VuViz@61 · new@76 · impl@133 · config@137 · set_config@161 · tick@177 · render@190 · register@222
 use crate::visualizer::{
     merge_config,
     pad_frame, status_bar,
     AudioFrame, TermSize, Visualizer,
 };
+use crate::visualizer_utils::rms;
 
 const CONFIG_VERSION: u64 = 1;
 
@@ -83,12 +85,6 @@ impl VuViz {
             gain:    1.0,
             mono:    false,
         }
-    }
-
-    fn rms(samples: &[f32]) -> f32 {
-        if samples.is_empty() { return 0.0; }
-        let mean_sq = samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32;
-        mean_sq.sqrt()
     }
 
     fn update_channel(level: &mut f32, peak: &mut f32, timer: &mut f32, raw: f32, dt: f32) {
@@ -180,11 +176,11 @@ impl Visualizer for VuViz {
 
     fn tick(&mut self, audio: &AudioFrame, dt: f32, _size: TermSize) {
         let (raw_l, raw_r) = if self.mono {
-            let m = Self::rms(&audio.mono) * self.gain;
+            let m = rms(&audio.mono) * self.gain;
             (m, m)
         } else {
-            (Self::rms(&audio.left)  * self.gain,
-             Self::rms(&audio.right) * self.gain)
+            (rms(&audio.left)  * self.gain,
+             rms(&audio.right) * self.gain)
         };
 
         Self::update_channel(&mut self.level_l, &mut self.peak_l, &mut self.timer_l, raw_l, dt);

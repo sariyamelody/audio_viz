@@ -7,6 +7,7 @@
 /// Left channel: cyan (256-colour 51 / 39)
 /// Right channel: orange (256-colour 214 / 208)
 
+// ── Index: ScopeViz@22 · new@35 · draw_wave@47 · impl@127 · config@131 · set_config@163 · tick@181 · render@191 · register@235
 use crate::visualizer::{
     merge_config,
     pad_frame, status_bar, hline, title_line,

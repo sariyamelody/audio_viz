@@ -26,6 +26,7 @@
 ///   hue        — 0–255; shifts ring and scope colours around the palette
 ///   wobble     — 0.0–1.0; beat-driven 3D tilt of the ring projection
 
+// ── Index: PulsarViz@47 · new@75 · rms_to_color@96 · tick_wobble@111 · impl@156 · config@160 · set_config@208 · tick@251 · render@284 · register@417
 use std::collections::VecDeque;
 use std::f32::consts::PI;
 
@@ -34,6 +35,7 @@ use crate::visualizer::{
     pad_frame, specgrad, status_bar,
     AudioFrame, TermSize, Visualizer,
 };
+use crate::visualizer_utils::rms;
 
 const CONFIG_VERSION: u64 = 1;
 
@@ -90,11 +92,6 @@ impl PulsarViz {
             hue:             0,
             wobble:          0.0,
         }
-    }
-
-    fn rms(s: &[f32]) -> f32 {
-        if s.is_empty() { return 0.0; }
-        (s.iter().map(|v| v * v).sum::<f32>() / s.len() as f32).sqrt()
     }
 
     fn rms_to_color(rms: f32, hue: u8) -> u8 {
@@ -262,7 +259,7 @@ impl Visualizer for PulsarViz {
             self.cached_cols = cols;
         }
 
-        let rms = Self::rms(&audio.mono);
+        let rms = rms(&audio.mono);
         self.rms_smooth = 0.75 * self.rms_smooth + 0.25 * rms;
 
         self.tick_wobble(rms, dt);

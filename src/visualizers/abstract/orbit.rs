@@ -23,6 +23,7 @@
 ///   trail  — 0.5 = long trails, 2.0 = short trails
 ///   hue    — 0–255; shifts the colour palette around the spectrum gradient
 
+// ── Index: OrbitViz@40 · new@62 · ensure_grid@75 · impl@89 · config@93 · set_config@126 · tick@156 · render@224 · register@284
 use std::f32::consts::PI;
 
 use crate::visualizer::{
@@ -30,6 +31,7 @@ use crate::visualizer::{
     pad_frame, specgrad, status_bar,
     AudioFrame, TermSize, Visualizer,
 };
+use crate::visualizer_utils::rms;
 
 const CONFIG_VERSION: u64 = 1;
 
@@ -69,11 +71,6 @@ impl OrbitViz {
             trail:       1.0,
             hue:         0,
         }
-    }
-
-    fn rms(s: &[f32]) -> f32 {
-        if s.is_empty() { return 0.0; }
-        (s.iter().map(|v| v * v).sum::<f32>() / s.len() as f32).sqrt()
     }
 
     fn ensure_grid(&mut self, vis: usize, cols: usize) {
@@ -168,7 +165,7 @@ impl Visualizer for OrbitViz {
         }
 
         // Smooth RMS for decay modulation
-        let rms = Self::rms(&audio.mono);
+        let rms = rms(&audio.mono);
         self.rms_smooth = 0.7 * self.rms_smooth + 0.3 * rms;
 
         // Decay the grid: louder audio → slightly faster decay.

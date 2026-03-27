@@ -14,6 +14,7 @@
 ///   beat transient → burst of 1–3 extra missiles
 ///   overall level  → travel speed; quiet = repair; loud = window flicker
 
+// ── Index: ThemeData@31 · theme_data@128 · entities@248 · MissilesViz@290 · new@330 · impl@574 · config@578 · set_config@682 · tick@722 · render@942 · register@1174
 use std::collections::VecDeque;
 use rand::Rng;
 use crate::visualizer::{

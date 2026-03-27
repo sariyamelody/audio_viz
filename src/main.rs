@@ -15,6 +15,8 @@
 ///      g. Sleep to target FPS_TARGET frames per second.
 
 mod visualizer;
+#[allow(dead_code)]
+mod visualizer_utils;
 mod visualizers;
 
 use std::io::{self, Write};

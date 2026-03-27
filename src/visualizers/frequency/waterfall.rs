@@ -9,64 +9,43 @@
 ///   frequency_scale — linear / log
 ///   peak_hold      — 0–3 s: time a peak marker stays lit before fading
 
+// ── Index: palettes@27 · WaterfallViz@53 · new@72 · impl@168 · config@172 · set_config@226 · tick@271 · render@311 · register@379
 use crate::visualizer::{
     merge_config,
-    pad_frame, status_bar,
+    pad_frame, specgrad, status_bar,
     AudioFrame, TermSize, Visualizer, FFT_SIZE,
+};
+use crate::visualizer_utils::{
+    palette_lookup, mag_to_frac as mag_to_frac_generic,
 };
 
 const CONFIG_VERSION: u64 = 1;
 
 // ── Colour palettes ────────────────────────────────────────────────────────────
 
-fn palette_heat(frac: f32) -> u8 {
-    // black → dark red → red → orange → yellow → white
-    const HEAT: &[u8] = &[232, 52, 88, 124, 160, 196, 202, 208, 214, 220, 226, 227, 228, 229, 230, 231];
-    let i = (frac.clamp(0.0, 1.0) * (HEAT.len() - 1) as f32) as usize;
-    HEAT[i.min(HEAT.len() - 1)]
-}
-
-fn palette_ice(frac: f32) -> u8 {
-    const ICE: &[u8] = &[232, 17, 18, 19, 20, 21, 27, 33, 39, 45, 51, 87, 123, 159, 195, 231];
-    let i = (frac.clamp(0.0, 1.0) * (ICE.len() - 1) as f32) as usize;
-    ICE[i.min(ICE.len() - 1)]
-}
+// Waterfall-specific palettes with leading black (232) for dark background
+const HEAT:  &[u8] = &[232, 52, 88, 124, 160, 196, 202, 208, 214, 220, 226, 227, 228, 229, 230, 231];
+const W_ICE: &[u8] = &[232, 17, 18, 19, 20, 21, 27, 33, 39, 45, 51, 87, 123, 159, 195, 231];
+const PHOS:  &[u8] = &[232, 22, 28, 34, 40, 46, 82, 118, 154, 190, 226, 229, 231];
 
 fn palette_mono(frac: f32) -> u8 {
-    // 232 (near-black) → 255 (white)
     let level = (frac.clamp(0.0, 1.0) * 23.0) as u8;
     232 + level
 }
 
-fn palette_phosphor(frac: f32) -> u8 {
-    // dark green → bright green → yellow-green → white
-    const PHOS: &[u8] = &[232, 22, 28, 34, 40, 46, 82, 118, 154, 190, 226, 229, 231];
-    let i = (frac.clamp(0.0, 1.0) * (PHOS.len() - 1) as f32) as usize;
-    PHOS[i.min(PHOS.len() - 1)]
-}
-
-fn palette_spectrum(frac: f32) -> u8 {
-    use crate::visualizer::specgrad;
-    specgrad(frac)
-}
-
 fn color_for(frac: f32, scheme: &str) -> u8 {
     match scheme {
-        "heat"     => palette_heat(frac),
-        "ice"      => palette_ice(frac),
+        "heat"     => palette_lookup(frac, HEAT),
+        "ice"      => palette_lookup(frac, W_ICE),
         "mono"     => palette_mono(frac),
-        "phosphor" => palette_phosphor(frac),
-        _          => palette_spectrum(frac),
+        "phosphor" => palette_lookup(frac, PHOS),
+        _          => specgrad(frac),
     }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 /// Convert linear FFT magnitude to dB-normalised 0..1 frac.
 fn mag_to_frac(v: f32) -> f32 {
-    // RMS ≈ 0..~0.5 for typical audio; map logarithmically
-    let db = 20.0 * v.max(1e-6).log10();
-    ((db + 72.0) / 60.0).clamp(0.0, 1.0)
+    mag_to_frac_generic(v, -72.0, -12.0)
 }
 
 // ── Struct ────────────────────────────────────────────────────────────────────

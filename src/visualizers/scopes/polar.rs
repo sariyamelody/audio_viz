@@ -19,6 +19,7 @@
 ///  theme       — phosphor color palette: "green" (classic P31), "amber"
 ///                (P3), or "white" (P4 — sharp fade through grey).
 
+// ── Index: PolarViz@33 · new@42 · draw_line@68 · impl@100 · config@104 · set_config@137 · tick@155 · render@159 · register@266
 use std::f32::consts::PI;
 
 use crate::visualizer::{

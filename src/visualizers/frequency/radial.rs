@@ -10,12 +10,14 @@
 /// Performance: the polar grid (rnorm, theta arrays) is recomputed only on
 /// resize; it is cached in the struct between frames.
 
+// ── Index: RadialViz@24 · new@38 · impl@84 · config@88 · set_config@105 · tick@124 · render@135 · register@195
 use std::f32::consts::PI;
 use crate::visualizer::{
     merge_config,
     pad_frame, specgrad, status_bar,
     AudioFrame, SpectrumBars, TermSize, Visualizer,
 };
+use crate::visualizer_utils::with_gained_fft;
 
 const CONFIG_VERSION: u64 = 1;
 
@@ -127,12 +129,7 @@ impl Visualizer for RadialViz {
             self.precompute(rows, cols);
         }
         self.bars.resize(cols);
-        if (self.gain - 1.0).abs() > f32::EPSILON {
-            let scaled: Vec<f32> = audio.fft.iter().map(|v| v * self.gain).collect();
-            self.bars.update(&scaled, dt);
-        } else {
-            self.bars.update(&audio.fft, dt);
-        }
+        with_gained_fft(&audio.fft, self.gain, |fft| self.bars.update(fft, dt));
     }
 
     fn render(&self, size: TermSize, fps: f32) -> Vec<String> {

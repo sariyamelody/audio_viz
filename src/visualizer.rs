@@ -267,7 +267,7 @@ pub fn spec_to_bars(fft: &[f32], lo_bins: &[usize], hi_bins: &[usize]) -> Vec<f3
         .map(|(&lo, &hi)| {
             let slice = &fft[lo..hi.min(fft.len())];
             if slice.is_empty() { return 0.0; }
-            let rms = (slice.iter().map(|v| v * v).sum::<f32>() / slice.len() as f32).sqrt();
+            let rms = crate::visualizer_utils::rms(slice);
             let db  = 20.0 * rms.max(1e-9).log10();
             ((db - DB_MIN) / (DB_MAX - DB_MIN)).clamp(0.0, 1.0)
         })

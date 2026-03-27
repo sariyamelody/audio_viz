@@ -14,11 +14,13 @@
 ///   color_scheme — heat / ocean / neon / spectrum / mono
 ///   ripple_shape — circle / diamond / cross (controls the initial wavefront)
 
+// ── Index: wave_color@29 · add_impulse@60 · RippleViz@83 · new@106 · step_wave@138 · impl@164 · config@168 · set_config@214 · tick@239 · render@287 · register@326
 use crate::visualizer::{
     merge_config,
     pad_frame, specgrad, status_bar,
     AudioFrame, TermSize, Visualizer,
 };
+use crate::visualizer_utils::rms;
 
 const CONFIG_VERSION: u64 = 1;
 
@@ -125,11 +127,6 @@ impl RippleViz {
         self.prv = vec![vec![0.0f32; gw]; gh];
         self.gh  = gh;
         self.gw  = gw;
-    }
-
-    fn rms(s: &[f32]) -> f32 {
-        if s.is_empty() { return 0.0; }
-        (s.iter().map(|v| v * v).sum::<f32>() / s.len() as f32).sqrt()
     }
 
     fn rand_next(&mut self) -> f32 {
@@ -246,7 +243,7 @@ impl Visualizer for RippleViz {
         let gw   = cols;
         self.ensure_grid(gh, gw);
 
-        let rms = Self::rms(&audio.mono);
+        let rms = rms(&audio.mono);
         let beat_threshold = self.rms_avg * 1.5;
         self.rms_avg = 0.92 * self.rms_avg + 0.08 * rms;
         self.beat_cool += dt;

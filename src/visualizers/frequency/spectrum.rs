@@ -1,10 +1,12 @@
 /// spectrum.rs — Classic log-spaced vertical frequency bar visualizer.
 
+// ── Index: SpectrumViz@70 · new@78 · render_helpers@89 · impl@222 · config@226 · set_config@250 · tick@271 · render@276 · register@374
 use crate::visualizer::{
     merge_config,
     pad_frame, specgrad, status_bar, hline, title_line,
     AudioFrame, SpectrumBars, TermSize, Visualizer,
 };
+use crate::visualizer_utils::with_gained_fft;
 
 const CONFIG_VERSION: u64 = 2;
 
@@ -268,12 +270,7 @@ impl Visualizer for SpectrumViz {
 
     fn tick(&mut self, audio: &AudioFrame, dt: f32, size: TermSize) {
         self.bars.resize(size.cols as usize);
-        if (self.gain - 1.0).abs() > f32::EPSILON {
-            let scaled: Vec<f32> = audio.fft.iter().map(|v| v * self.gain).collect();
-            self.bars.update(&scaled, dt);
-        } else {
-            self.bars.update(&audio.fft, dt);
-        }
+        with_gained_fft(&audio.fft, self.gain, |fft| self.bars.update(fft, dt));
     }
 
     fn render(&self, size: TermSize, fps: f32) -> Vec<String> {

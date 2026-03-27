@@ -66,6 +66,29 @@ pub trait Visualizer {
 - `CHANNELS`: 2
 - `FPS_TARGET`: 45
 
+## Shared Utilities (src/visualizer_utils.rs)
+
+Common DSP helpers, colour palettes, and rendering primitives extracted from all visualizers. Import selectively:
+
+```rust
+use crate::visualizer_utils::{rms, band_energy, freq_to_bin, smooth_asymmetric,
+    palette_lookup, brightness_char, ansi_fg, with_gained_fft,
+    PALETTE_FIRE, PALETTE_ICE, PALETTE_OCEAN, PALETTE_NEON,
+    PALETTE_GOLD, PALETTE_SUNSET, PALETTE_ARCTIC, PALETTE_TROPICAL};
+```
+
+Index: `rms@15` · `freq_to_bin@25` · `band_energy@32` · `mag_to_frac@41` · `smooth_asymmetric@51` · `with_gained_fft@60` · palettes@74 · `palette_lookup@85` · `brightness_char@95` · `ansi_fg@109` · `ansi_bold_fg@115` · `ansi_dim_fg@121`
+
+## File Index Convention
+
+Every visualizer file begins with a single-line index comment immediately before the first `use` statement:
+
+```rust
+// ── Index: MyViz@42 · new@55 · impl@90 · config@94 · set_config@120 · tick@145 · render@160 · register@210
+```
+
+The index lists key section names and their line numbers **in the file as it exists on disk** (accounting for the index line itself). Use these numbers to jump directly to a section when reading or editing a visualizer. When making edits that shift line numbers, update the index comment to match.
+
 ## Config Persistence
 
 - Linux: `~/.config/audio_viz/` (or `$XDG_CONFIG_HOME/audio_viz/`)

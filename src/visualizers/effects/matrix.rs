@@ -10,12 +10,14 @@
 /// Characters in the trail are randomly mutated every ~80 ms to give the
 /// "glitching" feel of the original effect.
 
+// ── Index: MatrixViz@62 · new@71 · impl@90 · config@94 · set_config@111 · tick@129 · render@159 · register@213
 use rand::Rng;
 use crate::visualizer::{
     merge_config,
     pad_frame, status_bar,
     AudioFrame, SpectrumBars, TermSize, Visualizer,
 };
+use crate::visualizer_utils::with_gained_fft;
 
 const CONFIG_VERSION: u64 = 1;
 
@@ -129,12 +131,7 @@ impl Visualizer for MatrixViz {
         let cols = size.cols as usize;
 
         self.bars.resize(cols);
-        if (self.gain - 1.0).abs() > f32::EPSILON {
-            let scaled: Vec<f32> = audio.fft.iter().map(|v| v * self.gain).collect();
-            self.bars.update(&scaled, dt);
-        } else {
-            self.bars.update(&audio.fft, dt);
-        }
+        with_gained_fft(&audio.fft, self.gain, |fft| self.bars.update(fft, dt));
         self.sync_drops(rows, cols);
 
         let n = self.bars.smoothed.len();

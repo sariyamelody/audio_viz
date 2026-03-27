@@ -13,34 +13,27 @@
 ///   speed        — 0.1–3.0: forward velocity through the tunnel
 ///   turbulence   — 0–1: how much audio warps the wall texture
 
+// ── Index: tunnel_color@31 · shape_dist@43 · TunnelViz@58 · new@77 · impl@98 · config@102 · set_config@149 · tick@168 · render@183 · register@309
 use std::f32::consts::PI;
 
 use crate::visualizer::{
     merge_config,
     pad_frame, specgrad, status_bar,
-    AudioFrame, TermSize, Visualizer, FFT_SIZE, SAMPLE_RATE,
+    AudioFrame, TermSize, Visualizer, FFT_SIZE,
+};
+use crate::visualizer_utils::{
+    freq_to_bin, palette_lookup, rms, smooth_asymmetric,
+    PALETTE_FIRE, PALETTE_NEON, PALETTE_ICE, PALETTE_GOLD,
 };
 
 const CONFIG_VERSION: u64 = 1;
 
-// ── Colour palettes ────────────────────────────────────────────────────────────
-
-const FIRE_P: &[u8] = &[52, 88, 124, 160, 196, 202, 208, 214, 220, 226, 227, 228, 229, 231];
-const NEON_P: &[u8] = &[201, 200, 165, 129, 93, 57, 21, 27, 33, 39, 45, 51, 87, 123, 159, 231];
-const ICE_P:  &[u8] = &[17, 18, 19, 20, 21, 27, 33, 39, 45, 51, 87, 123, 159, 195, 231];
-const GOLD_P: &[u8] = &[52, 94, 130, 136, 178, 214, 220, 226, 227, 228, 229, 230, 231, 255];
-
-fn pal(frac: f32, arr: &[u8]) -> u8 {
-    let i = (frac.clamp(0.0, 1.0) * (arr.len() - 1) as f32) as usize;
-    arr[i.min(arr.len() - 1)]
-}
-
 fn tunnel_color(frac: f32, scheme: &str) -> u8 {
     match scheme {
-        "fire" => pal(frac, FIRE_P),
-        "neon" => pal(frac, NEON_P),
-        "ice"  => pal(frac, ICE_P),
-        "gold" => pal(frac, GOLD_P),
+        "fire" => palette_lookup(frac, PALETTE_FIRE),
+        "neon" => palette_lookup(frac, PALETTE_NEON),
+        "ice"  => palette_lookup(frac, PALETTE_ICE),
+        "gold" => palette_lookup(frac, PALETTE_GOLD),
         _      => specgrad(frac),
     }
 }
@@ -82,12 +75,11 @@ pub struct TunnelViz {
 
 impl TunnelViz {
     pub fn new(source: &str) -> Self {
-        let freq_res = SAMPLE_RATE as f32 / FFT_SIZE as f32;
-        let n_bins   = FFT_SIZE / 2 + 1;
-        let bass_lo  = ((20.0    / freq_res) as usize).clamp(1, n_bins - 1);
-        let bass_hi  = ((250.0   / freq_res) as usize).clamp(bass_lo + 1, n_bins - 1);
-        let mid_hi   = ((4_000.0 / freq_res) as usize).clamp(bass_hi + 1, n_bins - 1);
-        let high_hi  = ((12_000.0/ freq_res) as usize).clamp(mid_hi  + 1, n_bins - 1);
+        let n_bins = FFT_SIZE / 2 + 1;
+        let bass_lo = freq_to_bin(20.0, n_bins);
+        let bass_hi = freq_to_bin(250.0, n_bins).max(bass_lo + 1);
+        let mid_hi  = freq_to_bin(4_000.0, n_bins).max(bass_hi + 1);
+        let high_hi = freq_to_bin(12_000.0, n_bins).max(mid_hi + 1);
         Self {
             t: 0.0, bass: 0.0, mid: 0.0, high: 0.0,
             bass_lo, bass_hi, mid_hi, high_hi,
@@ -98,11 +90,6 @@ impl TunnelViz {
             speed:        1.0,
             turbulence:   0.3,
         }
-    }
-
-    fn rms(s: &[f32]) -> f32 {
-        if s.is_empty() { return 0.0; }
-        (s.iter().map(|v| v * v).sum::<f32>() / s.len() as f32).sqrt()
     }
 }
 
@@ -183,21 +170,14 @@ impl Visualizer for TunnelViz {
 
         let fft = &audio.fft;
         let n   = fft.len();
-        let raw_bass = if self.bass_hi < n { Self::rms(&fft[self.bass_lo..self.bass_hi]) } else { 0.0 };
-        let raw_mid  = if self.mid_hi  < n { Self::rms(&fft[self.bass_hi..self.mid_hi ]) } else { 0.0 };
-        let raw_high = if self.high_hi < n { Self::rms(&fft[self.mid_hi ..self.high_hi]) } else { 0.0 };
+        let raw_bass = if self.bass_hi < n { rms(&fft[self.bass_lo..self.bass_hi]) } else { 0.0 };
+        let raw_mid  = if self.mid_hi  < n { rms(&fft[self.bass_hi..self.mid_hi ]) } else { 0.0 };
+        let raw_high = if self.high_hi < n { rms(&fft[self.mid_hi ..self.high_hi]) } else { 0.0 };
 
         let g = self.gain;
-        macro_rules! smooth {
-            ($cur:expr, $raw:expr, $a_rise:expr, $a_fall:expr) => {{
-                let scaled = ($raw * g).min(1.0);
-                let a = if scaled > $cur { $a_rise } else { $a_fall };
-                a * $cur + (1.0 - a) * scaled
-            }};
-        }
-        self.bass = smooth!(self.bass, raw_bass, 0.30, 0.88);
-        self.mid  = smooth!(self.mid,  raw_mid,  0.35, 0.90);
-        self.high = smooth!(self.high, raw_high, 0.25, 0.92);
+        self.bass = smooth_asymmetric(self.bass, (raw_bass * g).min(1.0), 0.30, 0.88);
+        self.mid  = smooth_asymmetric(self.mid,  (raw_mid  * g).min(1.0), 0.35, 0.90);
+        self.high = smooth_asymmetric(self.high, (raw_high * g).min(1.0), 0.25, 0.92);
     }
 
     fn render(&self, size: TermSize, fps: f32) -> Vec<String> {

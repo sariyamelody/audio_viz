@@ -40,6 +40,7 @@
 ///  beat_sensitivity — divides the beat detection threshold.  >1.0 = more
 ///                     beats; <1.0 = only strong beats trigger.
 
+// ── Index: data structs@82 · LissajousViz@118 · new@188 · impl@660 · config@666 · set_config@707 · tick@733 · render@805 · register@893
 use std::collections::{HashMap, VecDeque};
 use std::f32::consts::PI;
 
@@ -48,8 +49,9 @@ use rand::Rng;
 use crate::visualizer::{
     merge_config,
     pad_frame, specgrad, status_bar,
-    AudioFrame, SpectrumBars, TermSize, Visualizer, FFT_SIZE, SAMPLE_RATE,
+    AudioFrame, SpectrumBars, TermSize, Visualizer, FFT_SIZE,
 };
+use crate::visualizer_utils::{freq_to_bin, rms as calc_rms};
 
 const CONFIG_VERSION: u64 = 1;
 
@@ -186,14 +188,13 @@ impl LissajousViz {
     pub fn new(source: &str) -> Self {
         let mut rng = rand::thread_rng();
 
-        let freq_res  = SAMPLE_RATE as f32 / FFT_SIZE as f32;
-        let vocal_lo  = (300.0  / freq_res) as usize;
-        let vocal_hi  = (3400.0 / freq_res) as usize;
         let n_fft_bins = FFT_SIZE / 2 + 1;
+        let vocal_lo  = freq_to_bin(300.0, n_fft_bins);
+        let vocal_hi  = freq_to_bin(3400.0, n_fft_bins);
 
         let planets = PLANET_BANDS.iter().map(|&(flo, fhi, orbit_r, col)| {
-            let lo = ((flo / freq_res) as usize).clamp(1, n_fft_bins - 2);
-            let hi = ((fhi / freq_res) as usize).clamp(2, n_fft_bins - 1);
+            let lo = freq_to_bin(flo, n_fft_bins);
+            let hi = freq_to_bin(fhi, n_fft_bins).max(lo + 1);
             Planet {
                 angle:   rng.gen_range(0.0..2.0 * PI),
                 orbit_r,
@@ -280,7 +281,7 @@ impl LissajousViz {
     // ─────────────────────────────────────────────────────────────────────────
 
     fn tick_beat(&mut self, mono: &[f32], dt: f32) {
-        let rms = (mono.iter().map(|v| v * v).sum::<f32>() / mono.len() as f32).sqrt();
+        let rms = calc_rms(mono);
 
         self.beat_avg = self.beat_alpha * rms + (1.0 - self.beat_alpha) * self.beat_avg;
         self.time_since_beat += dt;
@@ -324,7 +325,7 @@ impl LissajousViz {
     }
 
     fn tick_rms(&mut self, mono: &[f32]) {
-        let rms = (mono.iter().map(|v| v * v).sum::<f32>() / mono.len() as f32).sqrt();
+        let rms = calc_rms(mono);
         self.rms_smooth = 0.7 * self.rms_smooth + 0.3 * rms;
     }
 

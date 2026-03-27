@@ -10,36 +10,28 @@
 ///   color_scheme — arctic / tropical / fire / neon / spectrum
 ///   density      — sparse / normal / dense: how many character columns are lit
 
+// ── Index: aurora_color@28 · AuroraViz@41 · new@58 · impl@93 · config@97 · set_config@144 · tick@168 · render@183 · register@283
 use std::f32::consts::PI;
 
 use crate::visualizer::{
     merge_config,
     pad_frame, specgrad, status_bar,
-    AudioFrame, TermSize, Visualizer, FFT_SIZE, SAMPLE_RATE,
+    AudioFrame, TermSize, Visualizer, FFT_SIZE,
+};
+use crate::visualizer_utils::{
+    freq_to_bin, palette_lookup, rms, smooth_asymmetric,
+    PALETTE_ARCTIC, PALETTE_TROPICAL, PALETTE_FIRE, PALETTE_NEON,
 };
 
 const CONFIG_VERSION: u64 = 1;
 
-// ── Colour palettes ────────────────────────────────────────────────────────────
-
-const ARCTIC:   &[u8] = &[17, 18, 19, 21, 27, 33, 39, 45, 51, 87, 123, 159, 195, 231, 255];
-const TROPICAL: &[u8] = &[22, 28, 34, 40, 46, 82, 118, 154, 190, 226, 220, 214, 208, 51, 87];
-const FIRE_P:   &[u8] = &[52, 88, 124, 160, 196, 202, 208, 214, 220, 226, 227, 228, 229, 231];
-const NEON_P:   &[u8] = &[201, 200, 165, 129, 93, 57, 21, 27, 33, 39, 45, 51, 87, 123, 159, 231];
-
-fn pal(frac: f32, arr: &[u8]) -> u8 {
-    let i = (frac.clamp(0.0, 1.0) * (arr.len() - 1) as f32) as usize;
-    arr[i.min(arr.len() - 1)]
-}
-
 fn aurora_color(frac: f32, band_frac: f32, scheme: &str) -> u8 {
-    // frac = vertical intensity, band_frac = which part of the palette to use
     let f = (frac * 0.5 + band_frac * 0.5).clamp(0.0, 1.0);
     match scheme {
-        "arctic"   => pal(f, ARCTIC),
-        "tropical" => pal(f, TROPICAL),
-        "fire"     => pal(f, FIRE_P),
-        "neon"     => pal(f, NEON_P),
+        "arctic"   => palette_lookup(f, PALETTE_ARCTIC),
+        "tropical" => palette_lookup(f, PALETTE_TROPICAL),
+        "fire"     => palette_lookup(f, PALETTE_FIRE),
+        "neon"     => palette_lookup(f, PALETTE_NEON),
         _          => specgrad(f),
     }
 }
@@ -64,10 +56,9 @@ pub struct AuroraViz {
 
 impl AuroraViz {
     pub fn new(source: &str) -> Self {
-        let freq_res = SAMPLE_RATE as f32 / FFT_SIZE as f32;
-        let n_bins   = FFT_SIZE / 2 + 1;
+        let n_bins = FFT_SIZE / 2 + 1;
 
-        // Split 0–12 kHz evenly in log space among 8 potential bands
+        // Split 30–12 kHz evenly in log space among 8 potential bands
         let f_lo = 30.0f32;
         let f_hi = 12_000.0f32;
         let mut bin_lo = [0usize; 8];
@@ -77,8 +68,8 @@ impl AuroraViz {
             let t_hi = (i + 1) as f32 / 8.0;
             let freq_lo = f_lo * (f_hi / f_lo).powf(t_lo);
             let freq_hi = f_lo * (f_hi / f_lo).powf(t_hi);
-            bin_lo[i] = ((freq_lo / freq_res) as usize).clamp(1, n_bins - 1);
-            bin_hi[i] = ((freq_hi / freq_res) as usize).clamp(bin_lo[i] + 1, n_bins - 1);
+            bin_lo[i] = freq_to_bin(freq_lo, n_bins);
+            bin_hi[i] = freq_to_bin(freq_hi, n_bins).max(bin_lo[i] + 1);
         }
 
         Self {
@@ -95,10 +86,6 @@ impl AuroraViz {
         }
     }
 
-    fn rms(s: &[f32]) -> f32 {
-        if s.is_empty() { return 0.0; }
-        (s.iter().map(|v| v * v).sum::<f32>() / s.len() as f32).sqrt()
-    }
 }
 
 // ── Visualizer impl ───────────────────────────────────────────────────────────
@@ -187,10 +174,9 @@ impl Visualizer for AuroraViz {
         for i in 0..self.band_count {
             let lo = self.bin_lo[i];
             let hi = self.bin_hi[i].min(n);
-            let raw = if lo < hi { Self::rms(&fft[lo..hi]) } else { 0.0 };
+            let raw = if lo < hi { rms(&fft[lo..hi]) } else { 0.0 };
             let scaled = (raw * 6.0 * self.gain).min(1.0); // amplify — band energy is small
-            let a = if scaled > self.bands[i] { 0.35 } else { 0.88 };
-            self.bands[i] = a * self.bands[i] + (1.0 - a) * scaled;
+            self.bands[i] = smooth_asymmetric(self.bands[i], scaled, 0.35, 0.88);
         }
     }
 

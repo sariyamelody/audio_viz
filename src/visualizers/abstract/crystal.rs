@@ -11,6 +11,7 @@
 ///   color_scheme   — spectrum / fire / ice / neon / gold
 ///   arm_style      — line / mirror / filled
 
+// ── Index: crystal_color@29 · CrystalViz@41 · new@54 · impl@70 · config@74 · set_config@121 · tick@149 · render@155 · register@254
 use std::f32::consts::PI;
 
 use crate::visualizer::{
@@ -18,27 +19,19 @@ use crate::visualizer::{
     pad_frame, specgrad, status_bar,
     AudioFrame, SpectrumBars, TermSize, Visualizer,
 };
+use crate::visualizer_utils::{
+    palette_lookup, with_gained_fft,
+    PALETTE_FIRE, PALETTE_ICE, PALETTE_NEON, PALETTE_GOLD,
+};
 
 const CONFIG_VERSION: u64 = 1;
 
-// ── Colour palettes ────────────────────────────────────────────────────────────
-
-const FIRE_P: &[u8] = &[52, 88, 124, 160, 196, 202, 208, 214, 220, 226, 227, 228, 229, 231];
-const ICE_P:  &[u8] = &[17, 18, 19, 20, 21, 27, 33, 39, 45, 51, 87, 123, 159, 195, 231];
-const NEON_P: &[u8] = &[201, 200, 165, 129, 93, 57, 21, 27, 33, 39, 45, 51, 87, 123, 159, 231];
-const GOLD_P: &[u8] = &[52, 94, 130, 136, 178, 214, 220, 226, 227, 228, 229, 230, 231, 255];
-
-fn pal(frac: f32, arr: &[u8]) -> u8 {
-    let i = (frac.clamp(0.0, 1.0) * (arr.len() - 1) as f32) as usize;
-    arr[i.min(arr.len() - 1)]
-}
-
 fn crystal_color(frac: f32, scheme: &str) -> u8 {
     match scheme {
-        "fire" => pal(frac, FIRE_P),
-        "ice"  => pal(frac, ICE_P),
-        "neon" => pal(frac, NEON_P),
-        "gold" => pal(frac, GOLD_P),
+        "fire" => palette_lookup(frac, PALETTE_FIRE),
+        "ice"  => palette_lookup(frac, PALETTE_ICE),
+        "neon" => palette_lookup(frac, PALETTE_NEON),
+        "gold" => palette_lookup(frac, PALETTE_GOLD),
         _      => specgrad(frac),
     }
 }
@@ -156,12 +149,7 @@ impl Visualizer for CrystalViz {
     fn tick(&mut self, audio: &AudioFrame, dt: f32, size: TermSize) {
         self.t += dt * self.rotation_speed;
         self.bars.resize(size.cols as usize);
-        if (self.gain - 1.0).abs() > f32::EPSILON {
-            let scaled: Vec<f32> = audio.fft.iter().map(|v| v * self.gain).collect();
-            self.bars.update(&scaled, dt);
-        } else {
-            self.bars.update(&audio.fft, dt);
-        }
+        with_gained_fft(&audio.fft, self.gain, |fft| self.bars.update(fft, dt));
     }
 
     fn render(&self, size: TermSize, fps: f32) -> Vec<String> {
