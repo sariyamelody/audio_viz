@@ -38,8 +38,9 @@ For every field in the struct's `// config` section, verify it appears in all fo
 A field missing from any site is either a silent bug or a compile error.
 
 ### 4. `render()` is structurally correct
+- Signature is `fn render(&self, size: TermSize, fps: f32) -> Vec<String>` — `&self` not `&mut self`.
 - Returns `Vec<String>` with exactly `size.rows` entries (enforced by `pad_frame`).
-- Second-to-last line push is the visual content loop over `0..vis` where `vis = rows.saturating_sub(1)`.
+- Visual content loop is over `0..vis` where `vis = rows.saturating_sub(1)` (optionally `.max(1)`).
 - Last two statements are:
   ```rust
   lines.push(status_bar(cols, fps, self.name(), &self.source, ""));

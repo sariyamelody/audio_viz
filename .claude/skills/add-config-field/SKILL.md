@@ -39,7 +39,7 @@ Match the type: string defaults need `.to_string()`, numeric defaults are bare l
 
 ### 3 — `get_default_config()` JSON entry
 
-Add a new object to the `"config"` array. Use the correct schema shape for the type:
+Add a new object to the `"config"` array inside the `serde_json::json!({…})` macro. Use the correct schema shape for the type:
 
 **float:**
 ```json
@@ -88,7 +88,7 @@ Add a new object to the `"config"` array. Use the correct schema shape for the t
 
 ### 4 — `set_config()` match arm
 
-Inside the `for entry in config { match entry["name"]… }` block, add a new arm:
+Inside the `for entry in config { match entry["name"].as_str().unwrap_or("") { … } }` block in `set_config()`, add a new arm:
 
 **float / int:**
 ```rust

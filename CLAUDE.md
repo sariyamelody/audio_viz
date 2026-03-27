@@ -46,17 +46,20 @@ Existing categories: `frequency`, `scopes`, `effects`, `abstract`
 ## Visualizer Trait
 
 ```rust
-pub trait Visualizer {
-    fn tick(&mut self, frame: &AudioFrame, dt: f32, size: TermSize);
-    fn render(&mut self, size: TermSize, fps: f32) -> Vec<String>;
-    fn get_default_config(&self) -> serde_json::Value;
-    fn set_config(&mut self, config: serde_json::Value) -> anyhow::Result<()>;
-    fn name(&self) -> &str;
+pub trait Visualizer: Send {
+    fn name(&self)        -> &str;
+    fn description(&self) -> &str;
+    fn tick(&mut self, audio: &AudioFrame, dt: f32, size: TermSize);
+    fn render(&self, size: TermSize, fps: f32) -> Vec<String>;
+    fn on_resize(&mut self, _size: TermSize) {}  // optional
+    fn get_default_config(&self) -> String;      // JSON string
+    fn set_config(&mut self, json: &str) -> Result<String, String>;
 }
 ```
 
-- `render()` returns ANSI-escaped strings (one per row)
+- `render()` returns ANSI-escaped strings (one per row); `&self` not `&mut self`
 - Config uses JSON schema with `float`, `enum`, and `boolean` setting types
+- `get_default_config()` / `set_config()` use JSON strings, not `serde_json::Value`
 - `AudioFrame` contains `.left`, `.right`, `.mono` (PCM) and `.fft` (spectrum magnitude)
 
 ## Key Constants (src/visualizer.rs)
