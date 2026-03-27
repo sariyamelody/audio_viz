@@ -20,9 +20,10 @@
 ///   neon     — electric pink → purple → cyan → white
 ///   sunset   — violet dusk through coral into golden amber
 
-// ── Index: scheme_color@38 · PlasmaViz@51 · new@76 · impl@105 · config@109 · set_config@157 · tick@180 · render@200 · register@277
+// ── Index: scheme_color@39 · PlasmaViz@52 · new@79 · impl@110 · config@114 · set_config@162 · tick@185 · render@211 · register@289
 use std::f32::consts::PI;
 
+use crate::beat::{BeatDetector, BeatDetectorConfig};
 use crate::visualizer::{
     merge_config,
     pad_frame, specgrad, status_bar,
@@ -50,10 +51,12 @@ fn scheme_color(frac: f32, shift: f32, scheme: &str) -> u8 {
 
 pub struct PlasmaViz {
     // ── Audio-reactive state ───────────────────────────────────────────────
-    t:       f32,   // global time accumulator; advances by dt * speed
-    bass:    f32,   // smoothed ~20–250 Hz RMS energy
-    mid:     f32,   // smoothed ~250–4 kHz RMS energy
-    high:    f32,   // smoothed ~4–12 kHz RMS energy
+    t:          f32,   // global time accumulator; advances by dt * speed
+    bass:       f32,   // smoothed ~20–250 Hz RMS energy
+    mid:        f32,   // smoothed ~250–4 kHz RMS energy
+    high:       f32,   // smoothed ~4–12 kHz RMS energy
+    beat:       BeatDetector,
+    beat_flash: f32,   // 1.0 on beat, decays to 0.0
 
     // ── FFT bin boundaries (precomputed from SAMPLE_RATE / FFT_SIZE) ───────
     bass_lo: usize,
@@ -86,6 +89,8 @@ impl PlasmaViz {
             bass:         0.0,
             mid:          0.0,
             high:         0.0,
+            beat:         BeatDetector::new(BeatDetectorConfig::bass_only()),
+            beat_flash:   0.0,
             bass_lo,
             bass_hi,
             mid_hi,
@@ -195,6 +200,12 @@ impl Visualizer for PlasmaViz {
         self.bass = smooth_asymmetric(self.bass, scaled_bass, 0.40, 0.92);
         self.mid  = smooth_asymmetric(self.mid,  scaled_mid,  0.40, 0.92);
         self.high = smooth_asymmetric(self.high, scaled_high, 0.35, 0.92);
+
+        self.beat.update(&audio.fft, dt);
+        if self.beat.is_beat() {
+            self.beat_flash = 1.0;
+        }
+        self.beat_flash = (self.beat_flash - dt * 4.0).max(0.0);
     }
 
     fn render(&self, size: TermSize, fps: f32) -> Vec<String> {
@@ -207,7 +218,8 @@ impl Visualizer for PlasmaViz {
         let mid  = self.mid;
         let high = self.high;
         let w    = self.warp;
-        let turb = self.turbulence;
+        let bf   = self.beat_flash;
+        let turb = self.turbulence + bf * 0.3; // beat boosts turbulence
 
         // Palette shift so colours cycle even in silence
         let palette_shift = (t * 0.08).fract();
@@ -246,7 +258,7 @@ impl Visualizer for PlasmaViz {
                 let v4    = (sweep * w * (4.0 + bass * 4.0) * PI + t * 0.5 + cx * PI).sin();
 
                 let plasma = (v1 + v2 + v3 + v4) / 4.0; // −1..1
-                let frac   = plasma * 0.5 + 0.5;          // 0..1
+                let frac   = (plasma * 0.5 + 0.5 + bf * 0.15).min(1.0); // 0..1, beat lifts brightness
 
                 let ch = if frac < 0.15 { ' ' }
                          else if frac < 0.38 { '░' }

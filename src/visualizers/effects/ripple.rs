@@ -14,7 +14,8 @@
 ///   color_scheme — heat / ocean / neon / spectrum / mono
 ///   ripple_shape — circle / diamond / cross (controls the initial wavefront)
 
-// ── Index: wave_color@29 · add_impulse@60 · RippleViz@83 · new@106 · step_wave@138 · impl@164 · config@168 · set_config@214 · tick@239 · render@287 · register@326
+// ── Index: wave_color@30 · add_impulse@61 · RippleViz@84 · new@106 · step_wave@144 · impl@169 · config@173 · set_config@219 · tick@244 · render@287 · register@326
+use crate::beat::{BeatDetector, BeatDetectorConfig};
 use crate::visualizer::{
     merge_config,
     pad_frame, specgrad, status_bar,
@@ -89,8 +90,7 @@ pub struct RippleViz {
     gw:        usize,
     gh:        usize,
     // Beat detection
-    rms_avg:   f32,
-    beat_cool: f32,   // seconds since last beat
+    beat: BeatDetector,
     // Simple LCG-like deterministic pseudo-random state
     rng:       u64,
     source:    String,
@@ -109,8 +109,13 @@ impl RippleViz {
             prv:          Vec::new(),
             gw:           0,
             gh:           0,
-            rms_avg:      0.0,
-            beat_cool:    0.0,
+            beat: BeatDetector::new({
+                let mut cfg = BeatDetectorConfig::simple();
+                cfg.cooldown_secs = 0.18;
+                cfg.min_onset = 0.005;
+                cfg.avg_alpha = 0.08;
+                cfg
+            }),
             rng:          0x9e3779b97f4a7c15,
             source:       source.to_string(),
             gain:         1.0,
@@ -243,18 +248,13 @@ impl Visualizer for RippleViz {
         let gw   = cols;
         self.ensure_grid(gh, gw);
 
+        self.beat.update(&audio.fft, dt);
         let rms = rms(&audio.mono);
-        let beat_threshold = self.rms_avg * 1.5;
-        self.rms_avg = 0.92 * self.rms_avg + 0.08 * rms;
-        self.beat_cool += dt;
-
         let amp = (rms * self.gain * 3.0).clamp(0.0, 1.5);
 
         match self.drop_mode.as_str() {
             "beat" => {
-                let is_beat = rms > beat_threshold && rms > 0.01 && self.beat_cool > 0.18;
-                if is_beat {
-                    self.beat_cool = 0.0;
+                if self.beat.is_beat() {
                     let gy = (self.rand_next() * (gh - 2) as f32) as usize + 1;
                     let gx = (self.rand_next() * (gw - 2) as f32) as usize + 1;
                     let shape = self.ripple_shape.clone();

@@ -8,8 +8,9 @@
 /// Colour palette: near-black → deep red → orange → yellow → white.
 /// Characters:     space → . → ` → ^ → ' → | → * → # → $ → @
 
-// ── Index: FireViz@26 · new@36 · impl@52 · config@56 · set_config@73 · tick@92 · render@130 · register@164
+// ── Index: FireViz@27 · new@39 · ensure_size@50 · impl@57 · config@61 · set_config@78 · tick@97 · render@141 · register@175
 use rand::Rng;
+use crate::beat::{BeatDetector, BeatDetectorConfig};
 use crate::visualizer::{
     merge_config,
     pad_frame, status_bar,
@@ -25,20 +26,24 @@ const FIRE_CHARS: &[u8]  = b" .`^'|*#$@";
 
 pub struct FireViz {
     /// heat[row][col] ∈ [0, 1].  Row 0 = top of screen.
-    heat:   Vec<Vec<f32>>,
-    bars:   SpectrumBars,
-    source: String,
+    heat:       Vec<Vec<f32>>,
+    bars:       SpectrumBars,
+    beat:       BeatDetector,
+    beat_flash: f32,
+    source:     String,
     // ── Config fields ──────────────────────────────────────────────────────
-    gain:   f32,
+    gain:       f32,
 }
 
 impl FireViz {
     pub fn new(source: &str) -> Self {
         Self {
-            heat:   Vec::new(),
-            bars:   SpectrumBars::new(80),
-            source: source.to_string(),
-            gain:   1.0,
+            heat:       Vec::new(),
+            bars:       SpectrumBars::new(80),
+            beat:       BeatDetector::new(BeatDetectorConfig::bass_only()),
+            beat_flash: 0.0,
+            source:     source.to_string(),
+            gain:       1.0,
         }
     }
 
@@ -107,7 +112,13 @@ impl Visualizer for FireViz {
 
         let mut rng = rand::thread_rng();
 
-        let base = (0.12 + bass * 1.3 + mid * 0.25).min(1.0);
+        self.beat.update(&audio.fft, dt);
+        if self.beat.is_beat() {
+            self.beat_flash = 1.0;
+        }
+        self.beat_flash = (self.beat_flash - dt * 3.5).max(0.0);
+
+        let base = (0.12 + bass * 1.3 + mid * 0.25 + self.beat_flash * 0.35).min(1.0);
         for c in 0..cols {
             let band  = (c * n / cols.max(1)).min(n - 1);
             let col_e = self.bars.smoothed[band];

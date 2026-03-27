@@ -26,10 +26,11 @@
 ///   hue        — 0–255; shifts ring and scope colours around the palette
 ///   wobble     — 0.0–1.0; beat-driven 3D tilt of the ring projection
 
-// ── Index: PulsarViz@47 · new@75 · rms_to_color@96 · tick_wobble@111 · impl@156 · config@160 · set_config@208 · tick@251 · render@284 · register@417
+// ── Index: PulsarViz@48 · new@75 · rms_to_color@102 · reset_tilt@108 · tick_wobble@116 · impl@152 · config@156 · set_config@204 · tick@247 · render@281 · register@414
 use std::collections::VecDeque;
 use std::f32::consts::PI;
 
+use crate::beat::{BeatDetector, BeatDetectorConfig};
 use crate::visualizer::{
     merge_config,
     pad_frame, specgrad, status_bar,
@@ -49,8 +50,7 @@ pub struct PulsarViz {
 
     // ── Audio / beat state ────────────────────────────────────────────────
     rms_smooth:      f32,
-    beat_avg:        f32,
-    time_since_beat: f32,
+    beat:            BeatDetector,
     beat_count:      u32,
 
     // ── 3D tilt state (wobble) ────────────────────────────────────────────
@@ -76,8 +76,13 @@ impl PulsarViz {
         Self {
             rings:           VecDeque::new(),
             rms_smooth:      0.0,
-            beat_avg:        0.0,
-            time_since_beat: 999.0,
+            beat: BeatDetector::new({
+                let mut cfg = BeatDetectorConfig::simple();
+                cfg.cooldown_secs = 0.20;
+                cfg.min_onset = 0.008;
+                cfg.avg_alpha = 0.07;
+                cfg
+            }),
             beat_count:      0,
             tilt_x:          0.0,
             tilt_y:          0.0,
@@ -107,20 +112,11 @@ impl PulsarViz {
         self.tilt_vy = 0.0;
     }
 
-    /// Beat detection + 3D tilt physics.
-    fn tick_wobble(&mut self, rms: f32, dt: f32) {
+    /// 3D tilt physics driven by shared beat detector.
+    fn tick_wobble(&mut self, dt: f32) {
         if self.wobble < 0.001 { return; }
 
-        self.beat_avg        = self.beat_avg * 0.93 + rms * 0.07;
-        self.time_since_beat += dt;
-
-        let is_beat = rms > self.beat_avg * 1.5
-            && self.time_since_beat > 0.20
-            && rms > 0.015;
-
-        if is_beat {
-            self.time_since_beat = 0.0;
-
+        if self.beat.is_beat() {
             // Golden-angle rotation so successive beats spread evenly
             let dir = self.beat_count as f32 * 2.399_963;
             // Angular impulse in radians/second; ~PI/4 total swing at wobble=1
@@ -262,7 +258,8 @@ impl Visualizer for PulsarViz {
         let rms = rms(&audio.mono);
         self.rms_smooth = 0.75 * self.rms_smooth + 0.25 * rms;
 
-        self.tick_wobble(rms, dt);
+        self.beat.update(&audio.fft, dt);
+        self.tick_wobble(dt);
 
         let n_snap   = cols.max(64).min(512);
         let src      = &audio.mono;

@@ -14,9 +14,10 @@
 ///   beat transient → burst of 1–3 extra missiles
 ///   overall level  → travel speed; quiet = repair; loud = window flicker
 
-// ── Index: ThemeData@31 · theme_data@128 · entities@248 · MissilesViz@290 · new@330 · impl@574 · config@578 · set_config@682 · tick@722 · render@942 · register@1174
+// ── Index: ThemeData@32 · theme_data@129 · entities@247 · MissilesViz@291 · new@330 · regen_city@373 · impl@579 · config@583 · set_config@687 · tick@727 · render@941 · register@1173
 use std::collections::VecDeque;
 use rand::Rng;
+use crate::beat::{BeatDetector, BeatDetectorConfig};
 use crate::visualizer::{
     merge_config, pad_frame, status_bar,
     AudioFrame, SpectrumBars, TermSize, Visualizer,
@@ -295,8 +296,7 @@ pub struct MissilesViz {
     bars:         SpectrumBars,
     source:       String,
     next_id:      u64,
-    rms_avg:      f32,
-    beat_cool:    f32,
+    beat:         BeatDetector,
     spawn_cool:   f32,
     // City
     city:         Vec<u8>,
@@ -336,8 +336,13 @@ impl MissilesViz {
             bars:         SpectrumBars::new(80),
             source:       source.to_string(),
             next_id:      1,
-            rms_avg:      0.0,
-            beat_cool:    0.0,
+            beat: BeatDetector::new({
+                let mut cfg = BeatDetectorConfig::simple();
+                cfg.cooldown_secs = 0.10;
+                cfg.min_onset = 0.003;
+                cfg.avg_alpha = 0.12;
+                cfg
+            }),
             spawn_cool:   0.0,
             city:         Vec::new(),
             city_target:  Vec::new(),
@@ -744,14 +749,8 @@ impl Visualizer for MissilesViz {
 
         self.win_phase += (0.3 + overall * 2.5) * dt;
 
-        let rms = {
-            let s = &audio.mono;
-            if s.is_empty() { 0.0f32 }
-            else { (s.iter().map(|v| v * v).sum::<f32>() / s.len() as f32).sqrt() }
-        };
-        self.rms_avg = 0.88 * self.rms_avg + 0.12 * rms;
-        let is_beat  = rms > self.rms_avg * 1.4 && rms > 0.006 && self.beat_cool > 0.10;
-        if is_beat { self.beat_cool = 0.0; } else { self.beat_cool += dt; }
+        self.beat.update(&audio.fft, dt);
+        let is_beat = self.beat.is_beat();
 
         let n_palettes = theme_data(&self.theme).missile_palettes.len();
 

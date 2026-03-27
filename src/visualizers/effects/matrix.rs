@@ -10,8 +10,9 @@
 /// Characters in the trail are randomly mutated every ~80 ms to give the
 /// "glitching" feel of the original effect.
 
-// ── Index: MatrixViz@62 · new@71 · impl@90 · config@94 · set_config@111 · tick@129 · render@159 · register@213
+// ── Index: Drop@35 · MatrixViz@63 · new@74 · sync_drops@86 · impl@95 · config@99 · set_config@116 · tick@134 · render@171 · register@225
 use rand::Rng;
+use crate::beat::{BeatDetector, BeatDetectorConfig};
 use crate::visualizer::{
     merge_config,
     pad_frame, status_bar,
@@ -60,20 +61,24 @@ impl Drop {
 }
 
 pub struct MatrixViz {
-    drops:  Vec<Drop>,
-    bars:   SpectrumBars,
-    source: String,
+    drops:      Vec<Drop>,
+    bars:       SpectrumBars,
+    beat:       BeatDetector,
+    beat_flash: f32,
+    source:     String,
     // ── Config fields ──────────────────────────────────────────────────────
-    gain:   f32,
+    gain:       f32,
 }
 
 impl MatrixViz {
     pub fn new(source: &str) -> Self {
         Self {
-            drops:  Vec::new(),
-            bars:   SpectrumBars::new(80),
-            source: source.to_string(),
-            gain:   1.0,
+            drops:      Vec::new(),
+            bars:       SpectrumBars::new(80),
+            beat:       BeatDetector::new(BeatDetectorConfig::standard()),
+            beat_flash: 0.0,
+            source:     source.to_string(),
+            gain:       1.0,
         }
     }
 
@@ -134,14 +139,21 @@ impl Visualizer for MatrixViz {
         with_gained_fft(&audio.fft, self.gain, |fft| self.bars.update(fft, dt));
         self.sync_drops(rows, cols);
 
+        self.beat.update(&audio.fft, dt);
+        if self.beat.is_beat() {
+            self.beat_flash = 1.0;
+        }
+        self.beat_flash = (self.beat_flash - dt * 4.0).max(0.0);
+
         let n = self.bars.smoothed.len();
         let mut rng = rand::thread_rng();
+        let beat_boost = self.beat_flash * 1.5;
 
         for (ci, d) in self.drops.iter_mut().enumerate() {
             let band   = (ci * n / cols.max(1)).min(n.saturating_sub(1));
             let energy = self.bars.smoothed[band];
 
-            d.y    += d.speed * (0.35 + energy * 2.8) * dt * rows as f32 * 0.7;
+            d.y    += d.speed * (0.35 + energy * 2.8 + beat_boost) * dt * rows as f32 * 0.7;
             d.flip_t += dt;
 
             if d.flip_t > 0.08 {

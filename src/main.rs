@@ -14,6 +14,7 @@
 ///      f. Handle F1 to open the settings overlay.
 ///      g. Sleep to target FPS_TARGET frames per second.
 
+mod beat;
 mod visualizer;
 #[allow(dead_code)]
 mod visualizer_utils;

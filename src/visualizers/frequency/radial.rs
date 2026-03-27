@@ -10,8 +10,9 @@
 /// Performance: the polar grid (rnorm, theta arrays) is recomputed only on
 /// resize; it is cached in the struct between frames.
 
-// ── Index: RadialViz@24 · new@38 · impl@84 · config@88 · set_config@105 · tick@124 · render@135 · register@195
+// ── Index: RadialViz@25 · new@41 · precompute@55 · impl@89 · config@93 · set_config@110 · tick@129 · render@146 · register@206
 use std::f32::consts::PI;
+use crate::beat::{BeatDetector, BeatDetectorConfig};
 use crate::visualizer::{
     merge_config,
     pad_frame, specgrad, status_bar,
@@ -22,8 +23,10 @@ use crate::visualizer_utils::with_gained_fft;
 const CONFIG_VERSION: u64 = 1;
 
 pub struct RadialViz {
-    bars:   SpectrumBars,
-    source: String,
+    bars:       SpectrumBars,
+    beat:       BeatDetector,
+    beat_flash: f32,
+    source:     String,
     /// Cached normalised radius for each cell.  Shape: rows × cols.
     rnorm:  Vec<Vec<f32>>,
     /// Cached angle (−π … π) for each cell.
@@ -38,6 +41,8 @@ impl RadialViz {
     pub fn new(source: &str) -> Self {
         Self {
             bars:        SpectrumBars::new(80),
+            beat:        BeatDetector::new(BeatDetectorConfig::standard()),
+            beat_flash:  0.0,
             source:      source.to_string(),
             rnorm:       Vec::new(),
             theta:       Vec::new(),
@@ -130,6 +135,12 @@ impl Visualizer for RadialViz {
         }
         self.bars.resize(cols);
         with_gained_fft(&audio.fft, self.gain, |fft| self.bars.update(fft, dt));
+
+        self.beat.update(&audio.fft, dt);
+        if self.beat.is_beat() {
+            self.beat_flash = 1.0;
+        }
+        self.beat_flash = (self.beat_flash - dt * 4.0).max(0.0);
     }
 
     fn render(&self, size: TermSize, fps: f32) -> Vec<String> {
@@ -153,7 +164,7 @@ impl Visualizer for RadialViz {
                 let th = if c < row_theta.len() { row_theta[c] } else { 0.0 };
 
                 let bi    = ((th + PI) / (2.0 * PI) * n as f32) as usize % n;
-                let bar_h = self.bars.smoothed[bi];
+                let bar_h = self.bars.smoothed[bi] + self.beat_flash * 0.15;
 
                 if rn < bar_h && rn < 1.0 {
                     let frac = bi as f32 / (n - 1).max(1) as f32;

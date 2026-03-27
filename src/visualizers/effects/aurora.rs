@@ -10,9 +10,10 @@
 ///   color_scheme — arctic / tropical / fire / neon / spectrum
 ///   density      — sparse / normal / dense: how many character columns are lit
 
-// ── Index: aurora_color@28 · AuroraViz@41 · new@58 · impl@93 · config@97 · set_config@144 · tick@168 · render@183 · register@283
+// ── Index: aurora_color@29 · AuroraViz@42 · new@61 · impl@98 · config@102 · set_config@149 · tick@173 · render@194 · register@297
 use std::f32::consts::PI;
 
+use crate::beat::{BeatDetector, BeatDetectorConfig};
 use crate::visualizer::{
     merge_config,
     pad_frame, specgrad, status_bar,
@@ -39,9 +40,11 @@ fn aurora_color(frac: f32, band_frac: f32, scheme: &str) -> u8 {
 // ── Struct ────────────────────────────────────────────────────────────────────
 
 pub struct AuroraViz {
-    t:         f32,
+    t:          f32,
     /// Smoothed per-band energies (up to 8).
-    bands:     [f32; 8],
+    bands:      [f32; 8],
+    beat:       BeatDetector,
+    beat_flash: f32,
     /// FFT bin boundaries: [lo, hi) for each band.
     bin_lo:    [usize; 8],
     bin_hi:    [usize; 8],
@@ -75,6 +78,8 @@ impl AuroraViz {
         Self {
             t:            0.0,
             bands:        [0.0; 8],
+            beat:         BeatDetector::new(BeatDetectorConfig::standard()),
+            beat_flash:   0.0,
             bin_lo,
             bin_hi,
             source:       source.to_string(),
@@ -178,6 +183,12 @@ impl Visualizer for AuroraViz {
             let scaled = (raw * 6.0 * self.gain).min(1.0); // amplify — band energy is small
             self.bands[i] = smooth_asymmetric(self.bands[i], scaled, 0.35, 0.88);
         }
+
+        self.beat.update(&audio.fft, dt);
+        if self.beat.is_beat() {
+            self.beat_flash = 1.0;
+        }
+        self.beat_flash = (self.beat_flash - dt * 3.0).max(0.0);
     }
 
     fn render(&self, size: TermSize, fps: f32) -> Vec<String> {
@@ -252,6 +263,9 @@ impl Visualizer for AuroraViz {
                         max_band = b;
                     }
                 }
+
+                // Beat flash lifts curtain brightness
+                max_intensity = (max_intensity + self.beat_flash * 0.2 * max_intensity).min(1.0);
 
                 if max_intensity < 0.05 {
                     line.push(' ');

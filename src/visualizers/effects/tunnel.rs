@@ -13,9 +13,10 @@
 ///   speed        — 0.1–3.0: forward velocity through the tunnel
 ///   turbulence   — 0–1: how much audio warps the wall texture
 
-// ── Index: tunnel_color@31 · shape_dist@43 · TunnelViz@58 · new@77 · impl@98 · config@102 · set_config@149 · tick@168 · render@183 · register@309
+// ── Index: tunnel_color@32 · shape_dist@44 · TunnelViz@59 · new@80 · impl@103 · config@107 · set_config@154 · tick@173 · render@194 · register@321
 use std::f32::consts::PI;
 
+use crate::beat::{BeatDetector, BeatDetectorConfig};
 use crate::visualizer::{
     merge_config,
     pad_frame, specgrad, status_bar,
@@ -56,15 +57,17 @@ fn shape_dist(dx: f32, dy: f32, shape: &str) -> f32 {
 // ── Struct ────────────────────────────────────────────────────────────────────
 
 pub struct TunnelViz {
-    t:       f32,
-    bass:    f32,
-    mid:     f32,
-    high:    f32,
-    bass_lo: usize,
-    bass_hi: usize,
-    mid_hi:  usize,
-    high_hi: usize,
-    source:  String,
+    t:          f32,
+    bass:       f32,
+    mid:        f32,
+    high:       f32,
+    bass_lo:    usize,
+    bass_hi:    usize,
+    mid_hi:     usize,
+    high_hi:    usize,
+    beat:       BeatDetector,
+    beat_flash: f32,
+    source:     String,
     // config
     gain:         f32,
     color_scheme: String,
@@ -83,6 +86,8 @@ impl TunnelViz {
         Self {
             t: 0.0, bass: 0.0, mid: 0.0, high: 0.0,
             bass_lo, bass_hi, mid_hi, high_hi,
+            beat: BeatDetector::new(BeatDetectorConfig::bass_only()),
+            beat_flash: 0.0,
             source:       source.to_string(),
             gain:         1.0,
             color_scheme: "spectrum".to_string(),
@@ -178,6 +183,12 @@ impl Visualizer for TunnelViz {
         self.bass = smooth_asymmetric(self.bass, (raw_bass * g).min(1.0), 0.30, 0.88);
         self.mid  = smooth_asymmetric(self.mid,  (raw_mid  * g).min(1.0), 0.35, 0.90);
         self.high = smooth_asymmetric(self.high, (raw_high * g).min(1.0), 0.25, 0.92);
+
+        self.beat.update(&audio.fft, dt);
+        if self.beat.is_beat() {
+            self.beat_flash = 1.0;
+        }
+        self.beat_flash = (self.beat_flash - dt * 3.5).max(0.0);
     }
 
     fn render(&self, size: TermSize, fps: f32) -> Vec<String> {
@@ -193,11 +204,12 @@ impl Visualizer for TunnelViz {
         let maxr_y = cy * 0.5;
         let maxr   = maxr_x.min(maxr_y).max(1.0);
 
+        let bf   = self.beat_flash;
         let t    = self.t;
-        let bass = self.bass;
+        let bass = self.bass + bf * 0.2;   // beat boosts bass reactivity
         let mid  = self.mid;
         let high = self.high;
-        let turb = self.turbulence;
+        let turb = self.turbulence + bf * 0.25;
 
         // How many depth-ring cycles fit across the visible radius
         const RING_FREQ: f32 = 6.0;

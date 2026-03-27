@@ -40,12 +40,13 @@
 ///  beat_sensitivity — divides the beat detection threshold.  >1.0 = more
 ///                     beats; <1.0 = only strong beats trigger.
 
-// ── Index: data structs@82 · LissajousViz@118 · new@188 · impl@660 · config@666 · set_config@707 · tick@733 · render@805 · register@893
+// ── Index: data structs@81 · LissajousViz@119 · new@184 · tick_beat@281 · tick_vocal_stars@320 · tick_planets@376 · tick_grid@406 · build_detail@472 · impl@648 · config@654 · set_config@695 · tick@724 · render@796 · register@884
 use std::collections::{HashMap, VecDeque};
 use std::f32::consts::PI;
 
 use rand::Rng;
 
+use crate::beat::{BeatDetector, BeatDetectorConfig};
 use crate::visualizer::{
     merge_config,
     pad_frame, specgrad, status_bar,
@@ -137,12 +138,7 @@ pub struct LissajousViz {
     hue_t: f32,
 
     // ── Beat onset detector ───────────────────────────────────────────────────
-    beat_avg:        f32,
-    beat_alpha:      f32,
-    /// Base threshold (before beat_sensitivity scaling).
-    beat_thresh:     f32,
-    beat_min_dt:     f32,
-    time_since_beat: f32,
+    beat: BeatDetector,
 
     // ── Beat ripples ──────────────────────────────────────────────────────────
     ripples: Vec<Ripple>,
@@ -221,11 +217,13 @@ impl LissajousViz {
             rot_vel_max:     3.8,
             rot_baseline:    0.02,
             hue_t:           0.0,
-            beat_avg:        0.0,
-            beat_alpha:      0.15,
-            beat_thresh:     1.55,
-            beat_min_dt:     0.18,
-            time_since_beat: 999.0,
+            beat: BeatDetector::new({
+                let mut cfg = BeatDetectorConfig::simple();
+                cfg.cooldown_secs = 0.18;
+                cfg.min_onset = 0.005;
+                cfg.avg_alpha = 0.15;
+                cfg
+            }),
             ripples:         Vec::new(),
             spoke_phase:     0.0,
             rms_smooth:      0.0,
@@ -280,21 +278,11 @@ impl LissajousViz {
     //  TICK SUBSYSTEMS
     // ─────────────────────────────────────────────────────────────────────────
 
-    fn tick_beat(&mut self, mono: &[f32], dt: f32) {
+    fn tick_beat(&mut self, fft: &[f32], mono: &[f32], dt: f32) {
+        self.beat.update(fft, dt);
         let rms = calc_rms(mono);
 
-        self.beat_avg = self.beat_alpha * rms + (1.0 - self.beat_alpha) * self.beat_avg;
-        self.time_since_beat += dt;
-
-        // beat_sensitivity > 1.0 → lower effective threshold → more beats
-        let effective_thresh = self.beat_thresh / self.beat_sensitivity.max(0.1);
-
-        let is_beat = rms > effective_thresh * self.beat_avg
-            && self.time_since_beat > self.beat_min_dt
-            && rms > 0.01;
-
-        if is_beat {
-            self.time_since_beat = 0.0;
+        if self.beat.is_beat() {
             let kick_dir = if self.rot_angle.sin() >= 0.0 { 1.0f32 } else { -1.0 };
             // rotation_speed scales the angular kick magnitude
             let kick_mag = (0.8 + rms * 4.0) * self.rotation_speed;
@@ -714,7 +702,10 @@ impl Visualizer for LissajousViz {
                     "gain"             => self.gain             = entry["value"].as_f64().unwrap_or(1.0) as f32,
                     "star_amplitude"   => self.star_amplitude   = entry["value"].as_f64().unwrap_or(1.0) as f32,
                     "rotation_speed"   => self.rotation_speed   = entry["value"].as_f64().unwrap_or(1.0) as f32,
-                    "beat_sensitivity" => self.beat_sensitivity = entry["value"].as_f64().unwrap_or(1.0) as f32,
+                    "beat_sensitivity" => {
+                        self.beat_sensitivity = entry["value"].as_f64().unwrap_or(1.0) as f32;
+                        self.beat.set_sensitivity(self.beat_sensitivity);
+                    }
                     _ => {}
                 }
             }
@@ -752,7 +743,7 @@ impl Visualizer for LissajousViz {
 
         self.ensure_grid(vis, cols);
 
-        self.tick_beat(&audio.mono, dt);
+        self.tick_beat(&audio.fft, &audio.mono, dt);
         self.tick_rms (&audio.mono);
         self.tick_vocal_stars(&audio.fft, dt);
 

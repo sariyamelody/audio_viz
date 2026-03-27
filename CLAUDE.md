@@ -69,6 +69,30 @@ pub trait Visualizer: Send {
 - `CHANNELS`: 2
 - `FPS_TARGET`: 45
 
+## Beat Detection (src/beat.rs)
+
+Shared beat detection library using sub-band spectral flux with adaptive thresholding. Each visualizer owns its own `BeatDetector` instance — no shared state.
+
+```rust
+use crate::beat::{BeatDetector, BeatDetectorConfig};
+
+// In struct:
+beat: BeatDetector,
+
+// In new():
+beat: BeatDetector::new(BeatDetectorConfig::standard()),
+
+// In tick():
+self.beat.update(&audio.fft, dt);
+if self.beat.is_beat() { /* react */ }
+```
+
+**Presets**: `BeatDetectorConfig::simple()` (full-range), `::standard()` (3-band bass/mid/high), `::bass_only()` (kick-focused)
+
+**Queries**: `is_beat()`, `beat_intensity()` (0.0–2.0), `time_since_beat()`, `band_onsets()`, `estimated_bpm()`
+
+**Runtime tuning**: `set_sensitivity(f32)` (>1.0 = more beats), `set_cooldown(secs)`
+
 ## Shared Utilities (src/visualizer_utils.rs)
 
 Common DSP helpers, colour palettes, and rendering primitives extracted from all visualizers. Import selectively:
