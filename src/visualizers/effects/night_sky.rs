@@ -1899,7 +1899,7 @@ impl NightSkyViz {
             scope_freq_lo:    30.0,
             scope_freq_hi:    20000.0,
             zoom_to_fit:      true,
-            zoom_fit_scale:   1.0,
+            zoom_fit_scale:   0.80,
             fov_anim:         60.0,
             fov_anim_target:  60.0,
             last_size:        TermSize { rows: 24, cols: 80 },
@@ -2104,7 +2104,7 @@ impl Visualizer for NightSkyViz {
                     "name": "zoom_fit_scale",
                     "display_name": "Zoom Fit Scale",
                     "type": "float",
-                    "value": 1.0,
+                    "value": 0.80,
                     "min": 0.05,
                     "max": 3.0
                 },
@@ -2228,7 +2228,7 @@ impl Visualizer for NightSkyViz {
                         }
                     }
                     "zoom_fit_scale" => {
-                        self.zoom_fit_scale = (entry["value"].as_f64().unwrap_or(1.0) as f32)
+                        self.zoom_fit_scale = (entry["value"].as_f64().unwrap_or(0.80) as f32)
                             .clamp(0.05, 3.0);
                         self.recompute_fit_fov();
                     }
