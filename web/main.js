@@ -160,6 +160,18 @@ function buildSettingsUI(schemaJson) {
 
     settingsPanel.appendChild(wrap);
   }
+
+  const resetBtn = document.createElement('button');
+  resetBtn.id          = 'reset-btn';
+  resetBtn.textContent = 'Reset';
+  resetBtn.addEventListener('click', () => {
+    if (!viz) return;
+    const name = viz.name();
+    try { localStorage.removeItem(STORAGE_PREFIX + name); } catch { /* ignore */ }
+    buildSettingsUI(viz.get_config());
+    applySettings();
+  });
+  settingsPanel.appendChild(resetBtn);
 }
 
 function applySettings() {
