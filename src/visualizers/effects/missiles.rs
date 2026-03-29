@@ -1546,6 +1546,9 @@ impl MissilesViz {
     fn tick_missiles(&mut self, ctx: &TickCtx) {
         let TickCtx { cols, vis, ground, bass, overall, dt, .. } = *ctx;
 
+        // Pre-compute surface rows to avoid borrow conflicts inside retain_mut
+        let surface_rows: Vec<usize> = (0..cols).map(|c| self.surface_row(c, ground)).collect();
+
         let mut to_explode: Vec<(f32, f32, f32, bool)> = Vec::new();
         self.missiles.retain_mut(|m| {
             if m.intercepted { return false; }
@@ -1556,10 +1559,7 @@ impl MissilesViz {
                 let c0 = col;
                 let c1 = col.saturating_sub(1);
                 let c2 = (col + 1).min(cols - 1);
-                [c0, c1, c2].iter().map(|&c| {
-                    let h = if c < self.city.len() { self.city[c] as usize } else { 0 };
-                    ground.saturating_sub(h)
-                }).min().unwrap_or(ground)
+                [c0, c1, c2].iter().map(|&c| surface_rows.get(c).copied().unwrap_or(ground)).min().unwrap_or(ground)
             };
             if m.y as usize >= imp || m.y as usize >= vis {
                 let heavy_mult = if m.heavy { 2.2 } else { 1.0 };
@@ -1666,36 +1666,40 @@ impl MissilesViz {
     }
 
     // ── tick_city ─────────────────────────────────────────────────────────────
-    /// Building regrow, reroll, recovery flash, entry streak decay.
+    /// Building regrow, recovery flash, entry streak decay, window flicker.
     fn tick_city(&mut self, ctx: &TickCtx) {
         let TickCtx { overall, dt, .. } = *ctx;
 
-        // ── Regrow buildings ──────────────────────────────────────────────────
+        // ── Regrow terrain cells ───────────────────────────────────────────────
         let quiet_factor = (1.0 - overall * 3.0).clamp(0.0, 1.0);
         let regrow_rate  = 0.25 * quiet_factor * self.regrow_speed;
-        if regrow_rate > 0.0 && self.city.len() == self.city_target.len() {
-            let mut rng = rand::thread_rng();
-            for c in 0..self.city.len() {
+
+        if regrow_rate > 0.0 {
+            for col in 0..self.terrain.len() {
                 // Check crater suppression
                 let crater_suppressed = self.crater_enabled && self.craters.iter().any(|cr| {
-                    (c as f32 - cr.cx).abs() < cr.radius
+                    (col as f32 - cr.cx).abs() < cr.radius
                 });
                 if crater_suppressed { continue; }
 
-                // Reroll destroyed building before regrowing.
-                // Capital columns restore to their original stepped profile.
-                if self.city_needs_reroll[c] && self.city[c] == 0 && rng.r#gen::<f32>() < 0.15 * dt {
-                    let (new_h, new_meta)     = gen_building_col(&mut rng);
-                    self.city_target[c]       = new_h;
-                    self.city_meta[c]         = new_meta;
-                    self.city_needs_reroll[c] = false;
-                }
+                if self.terrain_origin[col].len() != self.terrain[col].len() { continue; }
 
-                if self.city[c] < self.city_target[c] {
-                    self.city_regrow[c] += regrow_rate * dt;
-                    if self.city_regrow[c] >= 1.0 {
-                        self.city[c]        += 1;
-                        self.city_regrow[c]  = 0.0;
+                for row in 0..self.terrain[col].len() {
+                    let orig = self.terrain_origin[col][row];
+                    if orig == CellKind::Empty { continue; }
+                    let current = self.terrain[col][row].kind;
+                    let next_kind = match current {
+                        CellKind::Blown   => Some(CellKind::Cracked),
+                        CellKind::Cracked => Some(orig),
+                        CellKind::Rubble  => Some(CellKind::Empty),
+                        _                 => None,
+                    };
+                    if let Some(target) = next_kind {
+                        self.terrain_repair[col][row] += regrow_rate * dt;
+                        if self.terrain_repair[col][row] >= 1.0 {
+                            self.terrain_repair[col][row] = 0.0;
+                            self.terrain[col][row].kind = target;
+                        }
                     }
                 }
             }
@@ -1712,6 +1716,31 @@ impl MissilesViz {
         // ── Entry streak decay ────────────────────────────────────────────────
         for s in &mut self.entry_streaks { s.1 -= dt * 2.5; }
         self.entry_streaks.retain(|s| s.1 > 0.0);
+
+        // ── Window flicker ────────────────────────────────────────────────────
+        for col in 0..self.terrain.len() {
+            for row in 0..self.terrain[col].len() {
+                if self.terrain[col][row].kind == CellKind::Window {
+                    self.terrain[col][row].lit = self.recovery_flash > 0.0
+                        || win_lit(col as u8, row, (col as u32).wrapping_mul(0x9e3779b9), self.win_phase);
+                }
+            }
+        }
+    }
+
+    /// Returns the screen-space row of the first occupied (non-Empty, non-Blown) cell
+    /// in the given column, from the top down. Returns `ground` if the column is clear.
+    fn surface_row(&self, col: usize, ground: usize) -> usize {
+        if col >= self.terrain.len() { return ground; }
+        let cells = &self.terrain[col];
+        // Find the highest non-empty, non-blown cell (highest row_from_ground index)
+        for row_g in (0..cells.len()).rev() {
+            match cells[row_g].kind {
+                CellKind::Empty | CellKind::Blown => continue,
+                _ => return ground.saturating_sub(row_g + 1),
+            }
+        }
+        ground  // column is empty or fully blown
     }
 
     // ── render sub-methods ────────────────────────────────────────────────────
@@ -1940,111 +1969,91 @@ impl MissilesViz {
 
     // ── render_city ───────────────────────────────────────────────────────────
     fn render_city(&self, grid: &mut Vec<Vec<(char, u8, bool)>>, cols: usize, vis: usize, ground: usize, td: &ThemeData) {
-        let n_shades = td.city_shades.len().max(1);
-
-        // Snapshot explosions for building illumination in the city loop
+        // Snapshot explosions for building illumination
         let expl_snap: Vec<(f32, f32, f32, f32)> = self.explosions.iter()
             .map(|e| (e.cx, e.cy, e.max_radius, e.life))
             .collect();
+        let n_shades = td.city_shades.len().max(1);
 
-        // Snapshot craters to avoid borrow conflicts inside the city loop
+        // Snapshot craters to avoid borrow conflicts
         let craters_snap: Vec<(f32, f32)> = self.craters.iter().map(|cr| (cr.cx, cr.radius)).collect();
 
-        // Collect which columns have an active interceptor launched from them
-        // (used to show launch-pad markers)
+        // Launch pad markers
         let launch_cols: Vec<usize> = self.interceptors.iter()
             .filter(|i| !i.dead)
             .map(|i| i.launch_col)
             .collect();
 
-        for c in 0..cols.min(self.city.len()) {
-            let cur_h = self.city[c] as usize;
-            let tgt_h = self.city_target[c] as usize;
-            let m     = if c < self.city_meta.len() { self.city_meta[c] } else { ColMeta::default() };
-            // Explosion glow: columns near an active blast briefly illuminate
+        for col in 0..cols.min(self.terrain.len()) {
+            // Explosion glow for this column
             let expl_glow = expl_snap.iter().map(|&(ecx, _ecy, er, el)| {
                 if er < 1.0 { return 0.0f32; }
-                let dc = (c as f32 - ecx) * 0.5;
+                let dc = (col as f32 - ecx) * 0.5;
                 let glow_r = er * 2.2;
                 if dc.abs() < glow_r { el * (1.0 - dc.abs() / glow_r) } else { 0.0 }
             }).fold(0.0f32, f32::max);
 
-            let base_color = {
-                let raw = td.city_shades[(m.shade_idx as usize) % n_shades];
-                if expl_glow > 0.55 { 231u8 }
-                else if expl_glow > 0.30 { td.city_shades[1 % n_shades] }
-                else { raw }
-            };
+            let cells = &self.terrain[col];
+            let col_height = cells.len();
 
-            // Antenna
-            if cur_h > 0 && m.antenna_h > 0 && cur_h == tgt_h {
-                let ant_color = td.antenna_color;
-                for a in 1..=(m.antenna_h as usize) {
-                    let r = ground.saturating_sub(cur_h + a);
-                    if r >= vis || grid[r][c].0 != ' ' { continue; }
-                    let ch = if a == m.antenna_h as usize { '╻' } else { '│' };
-                    grid[r][c] = (ch, ant_color, a == m.antenna_h as usize);
-                }
-            }
-
-            // Launch pad marker — shown at the top of the building when an
-            // interceptor is currently in flight from this column
-            if cur_h > 0 && launch_cols.contains(&c) {
-                let pad_r = ground.saturating_sub(cur_h);
-                if pad_r < vis && grid[pad_r][c].0 == ' ' {
-                    grid[pad_r][c] = ('╦', td.antenna_color, true);
-                }
-            }
-
-            // Building body
-            for row_off in 0..cur_h {
-                let r = ground.saturating_sub(row_off + 1);
-                if r >= vis || grid[r][c].0 != ' ' { continue; }
-
-                let is_top     = row_off + 1 == cur_h;
-                let is_damaged = is_top && cur_h < tgt_h;
-                let is_gnd     = row_off == 0;
-                let can_window = m.windows && !is_top && !is_gnd;
-
-                let (ch, color, bold) = if is_damaged {
-                    let rubble = if (c + row_off) % 2 == 0 { '▄' } else { '░' };
-                    (rubble, td.city_shades[2 % n_shades], false)
-                } else if is_top {
-                    ('▀', base_color, false)
-                } else if can_window {
-                    let lit = self.recovery_flash > 0.0
-                              || win_lit(m.rel_col, row_off, m.seed, self.win_phase);
-                    if lit { ('▓', td.window_lit, false) } else { ('░', td.window_dark, false) }
-                } else if is_gnd && tgt_h > 0 {
-                    ('█', td.city_shades[2 % n_shades], false)
-                } else {
-                    ('█', base_color, false)
+            for row_g in 0..col_height {
+                let screen_row = match ground.checked_sub(row_g + 1) {
+                    Some(r) if r < vis => r,
+                    _ => continue,
                 };
-                grid[r][c] = (ch, color, bold);
+                if grid[screen_row][col].0 != ' ' { continue; }
+
+                let cell = cells[row_g];
+
+                // Apply explosion glow to base color
+                let color = if expl_glow > 0.55 { 231u8 }
+                            else if expl_glow > 0.30 { td.city_shades[1 % n_shades] }
+                            else { cell.color };
+
+                let (ch, col_out, bold) = match cell.kind {
+                    CellKind::Empty   => continue,
+                    CellKind::Solid   => ('█', color, false),
+                    CellKind::Top     => ('▀', color, false),
+                    CellKind::Window  => if cell.lit {
+                        ('▓', td.window_lit,  false)
+                    } else {
+                        ('░', td.window_dark, false)
+                    },
+                    CellKind::Antenna => {
+                        // Tip is the last antenna cell (highest row_g)
+                        let is_tip = row_g + 1 == col_height
+                            || cells[row_g + 1].kind != CellKind::Antenna;
+                        let ch = if is_tip { '╻' } else { '│' };
+                        (ch, td.antenna_color, is_tip)
+                    },
+                    CellKind::Cracked => ('▒', cell.color.saturating_sub(12), false),
+                    CellKind::Blown   => ('·', 234, false),
+                    CellKind::Rubble  => ('▄', td.city_shades[2 % n_shades], false),
+                };
+                grid[screen_row][col] = (ch, col_out, bold);
             }
 
-            // Rubble — show debris when a building is completely destroyed
-            if self.rubble_enabled && cur_h == 0 && tgt_h > 0 {
-                if ground < vis && grid[ground][c].0 == ' ' {
-                    let ch = if (c + tgt_h) % 3 == 0 { '▄' } else if (c + tgt_h) % 3 == 1 { '░' } else { ',' };
-                    grid[ground][c] = (ch, td.city_shades[2 % n_shades], false);
+            // Ground row fill
+            if ground < vis && grid[ground][col].0 == ' ' {
+                grid[ground][col] = ('▄', td.ground_color, false);
+            }
+
+            // Launch pad marker at building top
+            if col_height > 0 && launch_cols.contains(&col) {
+                let top_screen = ground.saturating_sub(col_height);
+                if top_screen < vis && grid[top_screen][col].0 == ' ' {
+                    grid[top_screen][col] = ('╦', td.antenna_color, true);
                 }
             }
 
-            if ground < vis && grid[ground][c].0 == ' ' {
-                grid[ground][c] = ('▄', td.ground_color, false);
-            }
-
-            // Scorch marks at base of destroyed/hit columns
-            if self.scorch_enabled && c < self.scorch.len() && self.scorch[c] > 0.05 {
-                let scorch_row = ground;
-                if scorch_row < vis {
-                    let sc_intensity = self.scorch[c];
+            // Scorch marks at base of hit columns
+            if self.scorch_enabled && col < self.scorch.len() && self.scorch[col] > 0.05 {
+                if ground < vis {
+                    let sc_intensity = self.scorch[col];
                     let ch    = if sc_intensity > 0.7 { '▓' } else if sc_intensity > 0.4 { '▒' } else { '░' };
                     let color = if sc_intensity > 0.7 { 234u8 } else if sc_intensity > 0.4 { 236 } else { 238 };
-                    // Only overwrite ground fill with scorch, not buildings
-                    if grid[scorch_row][c].1 == td.ground_color {
-                        grid[scorch_row][c] = (ch, color, false);
+                    if grid[ground][col].1 == td.ground_color {
+                        grid[ground][col] = (ch, color, false);
                     }
                 }
             }
@@ -2060,7 +2069,6 @@ impl MissilesViz {
                     if cc >= cols { continue; }
                     let depth = 1.0 - ((dc as f32).abs() / cr_radius.max(0.1)).min(1.0);
                     if depth < 0.15 { continue; }
-                    // Only overwrite if ground row is currently just ground fill or empty
                     let gr = ground;
                     if gr < vis && (grid[gr][cc].1 == td.ground_color || grid[gr][cc].0 == ' ') {
                         let ch    = if depth > 0.7 { '▂' } else if depth > 0.4 { '▁' } else { '·' };
