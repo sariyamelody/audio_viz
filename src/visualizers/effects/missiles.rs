@@ -288,6 +288,27 @@ fn theme_data(name: &str) -> ThemeData {
 
 // ── Building metadata ─────────────────────────────────────────────────────────
 
+/// Determines what character and color a terrain cell renders as.
+#[derive(Clone, Copy, Default, PartialEq)]
+enum CellKind {
+    #[default]
+    Empty,    // air / void — not rendered
+    Solid,    // intact wall — '█'
+    Top,      // building crown — '▀'
+    Window,   // window — '▓' lit / '░' dark
+    Antenna,  // spire segment — '│', tip '╻'
+    Cracked,  // damaged but standing — '▒'
+    Blown,    // structural void — '·' (faint, visible hole)
+    Rubble,   // collapsed debris at ground — '▄'
+}
+
+#[derive(Clone, Copy, Default)]
+struct TerrainCell {
+    kind:  CellKind,
+    color: u8,
+    lit:   bool,   // only used for Window cells
+}
+
 #[derive(Clone, Copy, Default)]
 struct ColMeta {
     shade_idx:  u8,
@@ -414,6 +435,11 @@ pub struct MissilesViz {
     city_cols:         usize,
     win_phase:         f32,
     city_needs_reroll: Vec<bool>,
+
+    // ── Terrain grid (replaces city height-map) ───────────────────────────────
+    terrain:        Vec<Vec<TerrainCell>>,  // [col][row_from_ground]; row 0 = ground level
+    terrain_origin: Vec<Vec<CellKind>>,     // original cell kinds for repair target
+    terrain_repair: Vec<Vec<f32>>,          // per-cell repair progress accumulator
 
     // ── Statistics ────────────────────────────────────────────────────────────
     missiles_intercepted: u32,
@@ -560,6 +586,9 @@ impl MissilesViz {
             craters:       Vec::new(),
             crater_enabled: true,
             city_needs_reroll: Vec::new(),
+            terrain:        Vec::new(),
+            terrain_origin: Vec::new(),
+            terrain_repair: Vec::new(),
         }
     }
 
