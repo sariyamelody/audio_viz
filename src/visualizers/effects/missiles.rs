@@ -679,50 +679,46 @@ impl MissilesViz {
         }
 
         // ── Capital building (overwrites city center) ──────────────────────────
-        // Twin Towers (WTC) profile: two tall, flat-topped rectangular towers
-        // flanking a 2-column plaza gap.
-        //   WTC 1 (north / left)  — has the rooftop transmission spire (antenna_h 6)
-        //   WTC 2 (south / right) — identical height, flat roof, no antenna
-        // Tower width scales with terminal columns (3–7 cols each).
+        // One World Trade Center profile: single wide tower with gently chamfered
+        // edges (outer columns step down 2 rows per col from the edge inward for
+        // 3 steps) and a tall rooftop spire on the center column.
+        //   base_h   = 22  (full-height core)
+        //   taper    = 3 columns on each side step down by 2 rows each
+        //   spire    = 8-row antenna on center column
+        // Width scales with terminal columns; always at screen center.
         let (cap_center, cap_w) = if self.capital_enabled && cols >= 12 {
-            let tower_w: usize = (cols / 12).clamp(3, 7);
-            let gap_w:   usize = 2;
-            let twins_w: usize = tower_w * 2 + gap_w;
-            let tower_h: u8    = 20;
-            let cap_start = (cols / 2).saturating_sub(twins_w / 2);
+            let cap_w:   usize = (cols / 4).clamp(14, 36);
+            let base_h:  u8    = 22;
+            let taper:   usize = (cap_w / 6).clamp(2, 4); // cols on each edge that taper
+            let cap_start = (cols / 2).saturating_sub(cap_w / 2);
 
-            for i in 0..twins_w {
+            for i in 0..cap_w {
                 let c = cap_start + i;
                 if c >= cols { break; }
 
-                let in_gap    = i >= tower_w && i < tower_w + gap_w;
-                if in_gap {
-                    // Plaza — clear so no stray building shows through the gap
-                    city[c] = 0;
-                    meta[c] = ColMeta::default();
-                    continue;
-                }
-
-                let (tower_i, is_tower1) = if i < tower_w {
-                    (i, true)
+                // Distance from nearest edge — 0 at corners, increases inward
+                let dist_edge = i.min(cap_w.saturating_sub(1).saturating_sub(i));
+                // Each step inward from the taper zone adds 2 rows of height
+                let h = if dist_edge < taper {
+                    base_h.saturating_sub(((taper - dist_edge) * 2) as u8)
                 } else {
-                    (i - tower_w - gap_w, false)
+                    base_h
                 };
-                let is_edge   = tower_i == 0 || tower_i + 1 == tower_w;
-                // WTC 1: transmission spire on center column only
-                let antenna_h = if is_tower1 && tower_i == tower_w / 2 { 6u8 } else { 0 };
+                // Spire only on center column of the full-height core
+                let antenna_h = if i == cap_w / 2 { 8u8 } else { 0 };
+                let is_edge   = dist_edge == 0;
 
-                city[c]  = tower_h;
+                city[c]  = h;
                 meta[c] = ColMeta {
                     shade_idx:  1,
-                    windows:    !is_edge && tower_w >= 3,
-                    rel_col:    tower_i as u8,
+                    windows:    !is_edge,
+                    rel_col:    i as u8,
                     antenna_h,
-                    seed:       if is_tower1 { 0xCA91_7A1Cu32 } else { 0x7A1CCA91u32 },
+                    seed:       0xCA91_7A1Cu32,
                     is_capital: true,
                 };
             }
-            (cols / 2, twins_w)
+            (cols / 2, cap_w)
         } else {
             (0, 0)
         };
@@ -1636,24 +1632,27 @@ impl MissilesViz {
                 // Capital columns restore to their original stepped profile.
                 if self.city_needs_reroll[c] && self.city[c] == 0 && rng.r#gen::<f32>() < 0.15 * dt {
                     if self.capital_enabled && self.city_meta[c].is_capital && self.capital_width > 0 {
-                        // Restore Twin Towers profile for this column
-                        let cap_start = self.capital_center.saturating_sub(self.capital_width / 2);
+                        // Restore One WTC profile for this column
+                        let cap_w     = self.capital_width;
+                        let cap_start = self.capital_center.saturating_sub(cap_w / 2);
                         let i         = c.saturating_sub(cap_start);
-                        let tower_w   = (self.capital_width.saturating_sub(2)) / 2; // gap_w = 2
-                        let (tower_i, is_tower1) = if i < tower_w {
-                            (i, true)
+                        let base_h: u8 = 22;
+                        let taper      = (cap_w / 6).clamp(2, 4);
+                        let dist_edge  = i.min(cap_w.saturating_sub(1).saturating_sub(i));
+                        let h = if dist_edge < taper {
+                            base_h.saturating_sub(((taper - dist_edge) * 2) as u8)
                         } else {
-                            (i.saturating_sub(tower_w + 2), false)
+                            base_h
                         };
-                        let is_edge   = tower_i == 0 || tower_i + 1 == tower_w;
-                        let antenna_h = if is_tower1 && tower_i == tower_w / 2 { 6u8 } else { 0 };
-                        self.city_target[c] = 20;
+                        let antenna_h = if i == cap_w / 2 { 8u8 } else { 0 };
+                        let is_edge   = dist_edge == 0;
+                        self.city_target[c] = h;
                         self.city_meta[c]   = ColMeta {
                             shade_idx:  1,
-                            windows:    !is_edge && tower_w >= 3,
-                            rel_col:    tower_i as u8,
+                            windows:    !is_edge,
+                            rel_col:    i as u8,
                             antenna_h,
-                            seed:       if is_tower1 { 0xCA91_7A1Cu32 } else { 0x7A1CCA91u32 },
+                            seed:       0xCA91_7A1Cu32,
                             is_capital: true,
                         };
                     } else {
