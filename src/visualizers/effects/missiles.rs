@@ -679,29 +679,50 @@ impl MissilesViz {
         }
 
         // ── Capital building (overwrites city center) ──────────────────────────
-        // Always-present government landmark: wide stepped pyramid, distinct shade,
-        // lit windows, central spire.  Scales in width with terminal columns.
+        // Twin Towers (WTC) profile: two tall, flat-topped rectangular towers
+        // flanking a 2-column plaza gap.
+        //   WTC 1 (north / left)  — has the rooftop transmission spire (antenna_h 6)
+        //   WTC 2 (south / right) — identical height, flat roof, no antenna
+        // Tower width scales with terminal columns (3–7 cols each).
         let (cap_center, cap_w) = if self.capital_enabled && cols >= 12 {
-            let cap_w     = (cols / 5).clamp(10, 40);
-            let cap_start = (cols / 2).saturating_sub(cap_w / 2);
-            let half_w    = cap_w / 2;
-            for i in 0..cap_w {
+            let tower_w: usize = (cols / 12).clamp(3, 7);
+            let gap_w:   usize = 2;
+            let twins_w: usize = tower_w * 2 + gap_w;
+            let tower_h: u8    = 20;
+            let cap_start = (cols / 2).saturating_sub(twins_w / 2);
+
+            for i in 0..twins_w {
                 let c = cap_start + i;
                 if c >= cols { break; }
-                let dist  = (i as isize - half_w as isize).unsigned_abs();
-                let frac  = 1.0f32 - (dist as f32 / half_w.max(1) as f32);
-                let tier  = (frac * 6.0).floor() as u8;
-                city[c]   = 4u8.saturating_add(tier * 3);  // 4..22 rows
+
+                let in_gap    = i >= tower_w && i < tower_w + gap_w;
+                if in_gap {
+                    // Plaza — clear so no stray building shows through the gap
+                    city[c] = 0;
+                    meta[c] = ColMeta::default();
+                    continue;
+                }
+
+                let (tower_i, is_tower1) = if i < tower_w {
+                    (i, true)
+                } else {
+                    (i - tower_w - gap_w, false)
+                };
+                let is_edge   = tower_i == 0 || tower_i + 1 == tower_w;
+                // WTC 1: transmission spire on center column only
+                let antenna_h = if is_tower1 && tower_i == tower_w / 2 { 6u8 } else { 0 };
+
+                city[c]  = tower_h;
                 meta[c] = ColMeta {
-                    shade_idx:  1,          // accent shade — stands out from regular buildings
-                    windows:    true,
-                    rel_col:    i as u8,
-                    antenna_h:  if dist <= 1 { 5 } else { 0 },
-                    seed:       0xCA91_7A1Cu32,
+                    shade_idx:  1,
+                    windows:    !is_edge && tower_w >= 3,
+                    rel_col:    tower_i as u8,
+                    antenna_h,
+                    seed:       if is_tower1 { 0xCA91_7A1Cu32 } else { 0x7A1CCA91u32 },
                     is_capital: true,
                 };
             }
-            (cols / 2, cap_w)
+            (cols / 2, twins_w)
         } else {
             (0, 0)
         };
@@ -1615,19 +1636,24 @@ impl MissilesViz {
                 // Capital columns restore to their original stepped profile.
                 if self.city_needs_reroll[c] && self.city[c] == 0 && rng.r#gen::<f32>() < 0.15 * dt {
                     if self.capital_enabled && self.city_meta[c].is_capital && self.capital_width > 0 {
+                        // Restore Twin Towers profile for this column
                         let cap_start = self.capital_center.saturating_sub(self.capital_width / 2);
                         let i         = c.saturating_sub(cap_start);
-                        let half_w    = self.capital_width / 2;
-                        let dist      = (i as isize - half_w as isize).unsigned_abs();
-                        let frac      = 1.0f32 - (dist as f32 / half_w.max(1) as f32);
-                        let tier      = (frac * 6.0).floor() as u8;
-                        self.city_target[c] = 4u8.saturating_add(tier * 3);
+                        let tower_w   = (self.capital_width.saturating_sub(2)) / 2; // gap_w = 2
+                        let (tower_i, is_tower1) = if i < tower_w {
+                            (i, true)
+                        } else {
+                            (i.saturating_sub(tower_w + 2), false)
+                        };
+                        let is_edge   = tower_i == 0 || tower_i + 1 == tower_w;
+                        let antenna_h = if is_tower1 && tower_i == tower_w / 2 { 6u8 } else { 0 };
+                        self.city_target[c] = 20;
                         self.city_meta[c]   = ColMeta {
                             shade_idx:  1,
-                            windows:    true,
-                            rel_col:    i as u8,
-                            antenna_h:  if dist <= 1 { 5 } else { 0 },
-                            seed:       0xCA91_7A1Cu32,
+                            windows:    !is_edge && tower_w >= 3,
+                            rel_col:    tower_i as u8,
+                            antenna_h,
+                            seed:       if is_tower1 { 0xCA91_7A1Cu32 } else { 0x7A1CCA91u32 },
                             is_capital: true,
                         };
                     } else {
