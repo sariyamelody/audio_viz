@@ -5,13 +5,15 @@
 /// slowly repair themselves during quiet passages.
 ///
 /// Building types (deterministic from terminal width):
-///   skyscraper — very narrow (1–2), very tall (14–22), windows, prominent antenna
+///   obelisk    — very narrow (1), very tall (20–28), large antenna, no windows
+///   skyscraper — narrow (1–2), very tall (14–22), windows, prominent antenna
 ///   tower      — narrow (1–2), medium-tall (7–12), small antenna
 ///   office     — medium (3–5), stepped crown silhouette, lit/dark windows
+///   cathedral  — wide (5–8), peaked center profile, windows on interior cols
 ///   factory    — wide (4–7), flat roof, chimney antenna on last column
-///   block      — widest (4–8), lowest (2–3), brutalist flat
-///   capital    — always-present landmark at screen center; wide stepped pyramid,
-///                accent shade, lit windows, central spire; regenerates when destroyed
+///   block      — wide (4–8), low (2–4), brutalist flat, no windows
+///   slab       — very wide (8–14), brutalist megablock, windows on all interior cols
+///   ziggurat   — wide (6–10), strictly pyramidal, no windows, no antenna
 ///
 /// Audio mapping:
 ///   bass energy       → spawn rate, explosion radius
@@ -27,52 +29,49 @@
 ///   ~L63   Constants (CONFIG_VERSION, SPARK_LEN, SPARK_CHARS, gameplay consts)
 ///   ~L85   ThemeData struct + 10 theme constant blocks (classic … candy)
 ///   ~L182  theme_data() — name → ThemeData lookup
-///   ~L267  ColMeta struct — per-column city metadata (is_capital flag)
-///   ~L276  win_lit()    — deterministic window on/off
-///   ~L287  star_at()    — deterministic star field
-///   ~L300  Data types   — Missile, Interceptor, Explosion, Smoke, Bomber, Shockwave, Crater
-///   ~L370  MissilesViz struct + fields (grouped: entities, audio, city, stats, config, runtime)
-///   ~L453  gen_building_col() — random single-column rebuild after destruction
-///   ~L477  TickCtx struct — per-frame context passed to tick sub-methods
-///   ~L489  impl MissilesViz (public + city helpers)
-///   ~L490    new()
-///   ~L560    regen_city() — LCG city layout + stepped profiles + capital placement
-///   ~L712    blast_city() — apply explosion damage; flags columns for reroll
-///   ~L732    random_dx()  — tiered diagonal distribution
-///   ~L757    city_health()
-///   ~L767    stats_line() — sparkline, city bar, mercy indicator, counters, fps
-///   ~L854  Visualizer impl
-///   ~L857    name() / description()
-///   ~L860    get_default_config()
-///   ~L896    set_config()
-///   ~L946    on_resize()
-///   ~L953    tick()     — coordinator; calls tick sub-methods in order
-///   ~L971    render()   — coordinator; calls render sub-methods in order
-///   ~L1020 impl MissilesViz (private sub-methods)
-///   ~L1025   tick_audio()           — FFT → bass/overall/treble, rms, beat, stereo pan
-///   ~L1072   tick_lull()            — silence timer, lull flag, sustained-loud timer
-///   ~L1101   tick_spawn()           — normal spawn + lull-just-ended wave burst
-///   ~L1185   tick_mirv()            — MIRV splitting + child interceptors
-///   ~L1245   tick_bomber()          — bomber spawn, movement, drop
-///   ~L1323   tick_interceptors()    — steering, turn-rate limit, mid-blast kill, trails
-///   ~L1405   tick_hits()            — direct hit + splash kill detection
-///   ~L1454   tick_missiles()        — advance missiles, ground impact, explosions/scorch
-///   ~L1515   tick_effects()         — explosions grow/fade/smoke, shockwaves, scorch, craters
-///   ~L1578   tick_city()            — regrow, reroll, recovery flash, entry streak decay
-///   ~L1645   tick_capital_defense() — last-stand emergency interceptors
-///   ~L1693   render_aurora()
-///   ~L1714   render_stars()
-///   ~L1743   render_bg_city()
-///   ~L1759   render_explosions()
-///   ~L1807   render_shockwaves()
-///   ~L1832   render_smoke()
-///   ~L1847   render_entry_streaks()
-///   ~L1865   render_missiles()
-///   ~L1893   render_interceptor_trails()
-///   ~L1905   render_interceptors()
-///   ~L1936   render_bombers()
-///   ~L1952   render_city()
-///   ~L2132 register()
+///   ~L267  ColMeta struct — per-column city metadata
+///   ~L275  win_lit()    — deterministic window on/off
+///   ~L286  star_at()    — deterministic star field
+///   ~L299  Data types   — Missile, Interceptor, Explosion, Smoke, Bomber, Shockwave, Crater
+///   ~L369  MissilesViz struct + fields (grouped: entities, audio, city, stats, config, runtime)
+///   ~L445  gen_building_col() — random single-column rebuild after destruction
+///   ~L469  TickCtx struct — per-frame context passed to tick sub-methods
+///   ~L481  impl MissilesViz (public + city helpers)
+///   ~L482    new()
+///   ~L545    regen_city() — LCG city layout + 8 building types (obelisk…ziggurat)
+///   ~L680    blast_city() — apply explosion damage; flags columns for reroll
+///   ~L700    random_dx()  — tiered diagonal distribution
+///   ~L725    city_health()
+///   ~L735    stats_line() — sparkline, city bar, mercy indicator, counters, fps
+///   ~L822  Visualizer impl
+///   ~L825    name() / description()
+///   ~L828    get_default_config()
+///   ~L860    set_config()
+///   ~L905    on_resize()
+///   ~L912    tick()     — coordinator; calls tick sub-methods in order
+///   ~L928    render()   — coordinator; calls render sub-methods in order
+///   ~L975  impl MissilesViz (private sub-methods)
+///   ~L980    tick_audio()           — FFT → bass/overall/treble, rms, beat, stereo pan
+///   ~L1025   tick_lull()            — silence timer, lull flag, sustained-loud timer
+///   ~L1054   tick_spawn()           — normal spawn + lull-just-ended wave burst
+///   ~L1138   tick_mirv()            — MIRV splitting + child interceptors
+///   ~L1198   tick_bomber()          — bomber spawn, movement, drop
+///   ~L1275   tick_interceptors()    — steering, turn-rate limit, mid-blast kill, trails
+///   ~L1357   tick_hits()            — direct hit + splash kill detection
+///   ~L1406   tick_missiles()        — advance missiles, ground impact, explosions/scorch
+///   ~L1467   tick_effects()         — explosions grow/fade/smoke, shockwaves, scorch, craters
+///   ~L1530   tick_city()            — regrow, reroll, recovery flash, entry streak decay
+///   ~L1590   render_stars()
+///   ~L1619   render_explosions()
+///   ~L1667   render_shockwaves()
+///   ~L1692   render_smoke()
+///   ~L1707   render_entry_streaks()
+///   ~L1725   render_missiles()
+///   ~L1753   render_interceptor_trails()
+///   ~L1765   render_interceptors()
+///   ~L1796   render_bombers()
+///   ~L1812   render_city()
+///   ~L1980  register()
 
 // ── Index: ThemeData@32 · theme_data@129 · entities@247 · MissilesViz@291 · new@330 · regen_city@373 · impl@579 · config@583 · set_config@687 · tick@727 · render@941 · register@1173
 use std::collections::VecDeque;
@@ -100,7 +99,6 @@ const LULL_THRESHOLD:              f32 = 2.0;   // seconds of silence before lul
 const LOUD_THRESHOLD:              f32 = 0.40;  // overall level for "sustained loud"
 const LOUD_TIMER_LIMIT:            f32 = 5.0;   // seconds of loud before bomber trigger
 const TURN_RATE_MAX:               f32 = std::f32::consts::PI * 1.5; // max interceptor turn rate per second — 270°/s
-const CAPITAL_LAST_STAND_HEALTH:   f32 = 0.15;  // capital HP below which last-stand triggers
 const EXPLOSION_GROW_RATE:         f32 = 5.5;   // multiplier for explosion radius growth per tick
 const SCORCH_FADE_RATE:            f32 = 0.15;  // per-second scorch fade factor
 
@@ -297,7 +295,6 @@ struct ColMeta {
     rel_col:    u8,
     antenna_h:  u8,
     seed:       u32,
-    is_capital: bool,   // part of the always-present Capital building
 }
 
 fn win_lit(rel_col: u8, row_from_ground: usize, seed: u32, phase: f32) -> bool {
@@ -437,10 +434,7 @@ pub struct MissilesViz {
     city_density:     String,
     city_density_cur: String,  // last value used for regen (triggers regen on change)
     theme:            String,
-    aurora_enabled:   bool,
-    aurora_intensity: f32,
     star_layers:      u8,
-    bg_city_enabled:  bool,
     rubble_enabled:   bool,
     mirv_enabled:     bool,
     mirv_chance:      f32,
@@ -449,13 +443,9 @@ pub struct MissilesViz {
     scorch_enabled:   bool,
     regrow_speed:     f32,
     speed_variance:   f32,
-    capital_enabled:  bool,
     crater_enabled:   bool,
 
     // ── Runtime state ─────────────────────────────────────────────────────────
-    aurora_phase:         f32,
-    capital_center:       usize,
-    capital_width:        usize,
     intercept_trails:     Vec<(f32, f32, f32)>,  // (x, y, life 0→1)
     sustained_loud_timer: f32,                    // seconds above LOUD_THRESHOLD
     silence_timer:        f32,                    // seconds below 0.03 overall
@@ -463,9 +453,7 @@ pub struct MissilesViz {
     recovery_flash:       f32,                    // 1→0, city recovery flourish
     city_health_last:     f32,                    // previous frame city health
     entry_streaks:        Vec<(f32, f32)>,        // (x, life) missile entry streaks
-    capital_defense_cool: f32,                    // cooldown for last-stand interceptors
     bomber_cool:          f32,
-    bg_city:              Vec<u8>,
     source:  String,
     next_id: u64,
 }
@@ -479,19 +467,19 @@ fn gen_building_col(rng: &mut impl Rng) -> (u8, ColMeta) {
     if btype < 0.12 {
         // skyscraper stub
         let h = rng.gen_range(10u8..=18);
-        (h, ColMeta { shade_idx: shade, windows: true, rel_col: 0, antenna_h: rng.gen_range(1u8..=3), seed, is_capital: false })
+        (h, ColMeta { shade_idx: shade, windows: true, rel_col: 0, antenna_h: rng.gen_range(1u8..=3), seed })
     } else if btype < 0.30 {
         // tower stub
         let h = rng.gen_range(5u8..=11);
-        (h, ColMeta { shade_idx: shade, windows: false, rel_col: 0, antenna_h: rng.gen_range(1u8..=2), seed, is_capital: false })
+        (h, ColMeta { shade_idx: shade, windows: false, rel_col: 0, antenna_h: rng.gen_range(1u8..=2), seed })
     } else if btype < 0.55 {
         // office stub
         let h = rng.gen_range(2u8..=6);
-        (h, ColMeta { shade_idx: shade, windows: true, rel_col: 1, antenna_h: 0, seed, is_capital: false })
+        (h, ColMeta { shade_idx: shade, windows: true, rel_col: 1, antenna_h: 0, seed })
     } else {
         // rubble stub — short, no frills
         let h = rng.gen_range(1u8..=3);
-        (h, ColMeta { shade_idx: 2, windows: false, rel_col: 0, antenna_h: 0, seed, is_capital: false })
+        (h, ColMeta { shade_idx: 2, windows: false, rel_col: 0, antenna_h: 0, seed })
     }
 }
 
@@ -552,10 +540,7 @@ impl MissilesViz {
             city_density:    "normal".to_string(),
             city_density_cur: String::new(),
             theme:           "classic".to_string(),
-            aurora_enabled:    true,
-            aurora_intensity:  0.6,
             star_layers:       2,
-            bg_city_enabled:   true,
             rubble_enabled:    true,
             mirv_enabled:      true,
             mirv_chance:       0.25,
@@ -564,10 +549,6 @@ impl MissilesViz {
             scorch_enabled:    true,
             regrow_speed:      1.0,
             speed_variance:    0.0,
-            capital_enabled:   true,
-            aurora_phase:   0.0,
-            capital_center: 0,
-            capital_width:  0,
             intercept_trails:     Vec::new(),
             sustained_loud_timer: 0.0,
             silence_timer:        0.0,
@@ -575,9 +556,7 @@ impl MissilesViz {
             recovery_flash:       0.0,
             city_health_last:     0.0,
             entry_streaks:        Vec::new(),
-            capital_defense_cool: 0.0,
             bomber_cool:    0.0,
-            bg_city:       Vec::new(),
             craters:       Vec::new(),
             crater_enabled: true,
             city_needs_reroll: Vec::new(),
@@ -617,111 +596,146 @@ impl MissilesViz {
             let seed  = (lcg >> 32) as u32;
             let shade = (next(&mut lcg) * 3.0) as u8;
 
-            // Building type: skyscraper / tower / office / factory / block
-            // `stepped` = true → crown profile: center columns taller than edges
-            let is_factory = btype >= 0.48 && btype < 0.72;
-            let (w, h, ant_h, has_windows, stepped) = if btype < 0.10 {
-                // skyscraper — narrow, very tall, prominent antenna
-                let w   = 1 + (next(&mut lcg) * 1.5) as usize;
-                let h   = (14.0 + next(&mut lcg) * 8.0) as u8;
-                let ant = 2 + (next(&mut lcg) * 2.0) as u8;
-                (w, h, ant, w >= 2, false)
-            } else if btype < 0.22 {
-                // tower — narrow, medium-tall, small antenna
-                let w   = 1 + (next(&mut lcg) * 1.5) as usize;
-                let h   = (h_tower.0 + next(&mut lcg) * h_tower.1) as u8;
-                let ant = 1 + (next(&mut lcg) * 2.0) as u8;
-                (w, h, ant, w >= 2, false)
-            } else if btype < 0.48 {
-                // office — medium width, stepped crown silhouette
-                let w = 3 + (next(&mut lcg) * 2.5) as usize;
-                let h = (h_office.0 + next(&mut lcg) * h_office.1) as u8;
-                (w, h, 0u8, true, true)
-            } else if btype < 0.72 {
-                // factory — wide, flat roof, chimney on last column
-                let w   = 4 + (next(&mut lcg) * 3.0) as usize;
-                let h   = (3.0 + next(&mut lcg) * 2.0) as u8;
-                let ant = 3 + (next(&mut lcg) * 2.0) as u8;
-                (w, h, ant, false, false)
+            // ── Building type dispatch ────────────────────────────────────────────
+            // 8 types: obelisk, skyscraper, tower, office, cathedral, factory, block, slab, ziggurat
+            enum BldType { Obelisk, Skyscraper, Tower, Office, Cathedral, Factory, Block, Slab, Ziggurat }
+            let bld_type = if btype < 0.06 {
+                BldType::Obelisk
+            } else if btype < 0.16 {
+                BldType::Skyscraper
+            } else if btype < 0.27 {
+                BldType::Tower
+            } else if btype < 0.44 {
+                BldType::Office
+            } else if btype < 0.58 {
+                BldType::Cathedral
+            } else if btype < 0.71 {
+                BldType::Factory
+            } else if btype < 0.82 {
+                BldType::Block
+            } else if btype < 0.92 {
+                BldType::Slab
             } else {
-                // block — widest, lowest, brutalist flat
-                let w = 4 + (next(&mut lcg) * 4.0) as usize;
-                let h = (h_block.0 + next(&mut lcg) * h_block.1) as u8;
-                (w, h, 0u8, false, false)
+                BldType::Ziggurat
             };
 
-            let w = w.min(cols - c);
-            if w == 0 { c += 1; continue; }
-
-            for i in 0..w {
-                // Stepped crown: each step inward adds one row of height
-                let col_h = if stepped && w > 2 {
-                    let center = (w as isize - 1) / 2;
-                    let dist   = (i as isize - center).unsigned_abs();
-                    let steps  = (w / 2).saturating_sub(dist);
-                    h.saturating_add(steps as u8)
-                } else { h };
-                city[c + i] = col_h;
-                let is_edge  = i == 0 || i + 1 == w;
-                let win_col  = has_windows && !is_edge && w > 2;
-                // factory chimney on last column; others on center
-                let this_ant = if ant_h > 0 && (if is_factory { i + 1 == w } else { i == w / 2 }) { ant_h } else { 0 };
-                meta[c + i] = ColMeta {
-                    shade_idx:  shade,
-                    windows:    win_col,
-                    rel_col:    i as u8,
-                    antenna_h:  this_ant,
-                    seed,
-                    is_capital: false,
-                };
+            match bld_type {
+                BldType::Obelisk => {
+                    // 1 col wide, very tall, large antenna, no windows
+                    let h   = (20.0 + next(&mut lcg) * 8.0) as u8;
+                    let ant = 5 + (next(&mut lcg) * 3.0) as u8;
+                    if c >= cols { c += 1; continue; }
+                    city[c] = h;
+                    meta[c] = ColMeta { shade_idx: shade, windows: false, rel_col: 0, antenna_h: ant, seed };
+                    c += 1;
+                }
+                BldType::Skyscraper => {
+                    let w   = 1 + (next(&mut lcg) * 1.5) as usize;
+                    let h   = (14.0 + next(&mut lcg) * 8.0) as u8;
+                    let ant = 2 + (next(&mut lcg) * 2.0) as u8;
+                    let w   = w.min(cols - c);
+                    if w == 0 { c += 1; continue; }
+                    for i in 0..w {
+                        city[c + i] = h;
+                        let is_edge = i == 0 || i + 1 == w;
+                        let this_ant = if i == w / 2 { ant } else { 0 };
+                        meta[c + i] = ColMeta { shade_idx: shade, windows: w >= 2 && !is_edge, rel_col: i as u8, antenna_h: this_ant, seed };
+                    }
+                    c += w;
+                }
+                BldType::Tower => {
+                    let w   = 1 + (next(&mut lcg) * 1.5) as usize;
+                    let h   = (h_tower.0 + next(&mut lcg) * h_tower.1) as u8;
+                    let ant = 1 + (next(&mut lcg) * 2.0) as u8;
+                    let w   = w.min(cols - c);
+                    if w == 0 { c += 1; continue; }
+                    for i in 0..w {
+                        city[c + i] = h;
+                        let this_ant = if i == w / 2 { ant } else { 0 };
+                        meta[c + i] = ColMeta { shade_idx: shade, windows: false, rel_col: i as u8, antenna_h: this_ant, seed };
+                    }
+                    c += w;
+                }
+                BldType::Office => {
+                    // Stepped crown: center cols taller
+                    let w = (3 + (next(&mut lcg) * 2.5) as usize).min(cols - c);
+                    if w == 0 { c += 1; continue; }
+                    let h = (h_office.0 + next(&mut lcg) * h_office.1) as u8;
+                    for i in 0..w {
+                        let center = (w as isize - 1) / 2;
+                        let dist   = (i as isize - center).unsigned_abs();
+                        let steps  = (w / 2).saturating_sub(dist);
+                        let col_h  = h.saturating_add(steps as u8);
+                        city[c + i] = col_h;
+                        let is_edge = i == 0 || i + 1 == w;
+                        meta[c + i] = ColMeta { shade_idx: shade, windows: !is_edge && w > 2, rel_col: i as u8, antenna_h: 0, seed };
+                    }
+                    c += w;
+                }
+                BldType::Cathedral => {
+                    // Peaked center: center col tallest, each outward col 1 row shorter
+                    let w      = (5 + (next(&mut lcg) * 3.0) as usize).min(cols - c);
+                    if w == 0 { c += 1; continue; }
+                    let peak_h = (8.0 + next(&mut lcg) * 6.0) as u8;
+                    for i in 0..w {
+                        let dist_from_center = (i as isize - (w / 2) as isize).unsigned_abs();
+                        let col_h = peak_h.saturating_sub(dist_from_center as u8).max(1);
+                        city[c + i] = col_h;
+                        let is_edge = i == 0 || i + 1 == w;
+                        meta[c + i] = ColMeta { shade_idx: shade, windows: !is_edge, rel_col: i as u8, antenna_h: 0, seed };
+                    }
+                    c += w;
+                }
+                BldType::Factory => {
+                    let w   = (4 + (next(&mut lcg) * 3.0) as usize).min(cols - c);
+                    if w == 0 { c += 1; continue; }
+                    let h   = (3.0 + next(&mut lcg) * 2.0) as u8;
+                    let ant = 3 + (next(&mut lcg) * 2.0) as u8;
+                    for i in 0..w {
+                        city[c + i] = h;
+                        // chimney antenna on last column
+                        let this_ant = if i + 1 == w { ant } else { 0 };
+                        meta[c + i] = ColMeta { shade_idx: shade, windows: false, rel_col: i as u8, antenna_h: this_ant, seed };
+                    }
+                    c += w;
+                }
+                BldType::Block => {
+                    let w = (4 + (next(&mut lcg) * 4.0) as usize).min(cols - c);
+                    if w == 0 { c += 1; continue; }
+                    let h = (h_block.0 + next(&mut lcg) * h_block.1) as u8;
+                    for i in 0..w {
+                        city[c + i] = h;
+                        meta[c + i] = ColMeta { shade_idx: shade, windows: false, rel_col: i as u8, antenna_h: 0, seed };
+                    }
+                    c += w;
+                }
+                BldType::Slab => {
+                    // Brutalist megablock: very wide, all interior cols have windows
+                    let w = (8 + (next(&mut lcg) * 6.0) as usize).min(cols - c);
+                    if w == 0 { c += 1; continue; }
+                    let h = (4.0 + next(&mut lcg) * 4.0) as u8;
+                    for i in 0..w {
+                        city[c + i] = h;
+                        let is_edge = i == 0 || i + 1 == w;
+                        meta[c + i] = ColMeta { shade_idx: shade, windows: !is_edge, rel_col: i as u8, antenna_h: 0, seed };
+                    }
+                    c += w;
+                }
+                BldType::Ziggurat => {
+                    // Strictly pyramidal: center tallest, each col outward 1 row shorter
+                    let w      = (6 + (next(&mut lcg) * 4.0) as usize).min(cols - c);
+                    if w == 0 { c += 1; continue; }
+                    let center_h = (8.0 + next(&mut lcg) * 6.0) as u8;
+                    for i in 0..w {
+                        let dist_from_center = (i as isize - (w / 2) as isize).unsigned_abs();
+                        let col_h = center_h.saturating_sub(dist_from_center as u8).max(1);
+                        city[c + i] = col_h;
+                        meta[c + i] = ColMeta { shade_idx: shade, windows: false, rel_col: i as u8, antenna_h: 0, seed };
+                    }
+                    c += w;
+                }
             }
-            c += w;
         }
-
-        // ── Capital building (overwrites city center) ──────────────────────────
-        // One World Trade Center profile: single wide tower with gently chamfered
-        // edges (outer columns step down 2 rows per col from the edge inward for
-        // 3 steps) and a tall rooftop spire on the center column.
-        //   base_h   = 22  (full-height core)
-        //   taper    = 3 columns on each side step down by 2 rows each
-        //   spire    = 8-row antenna on center column
-        // Width scales with terminal columns; always at screen center.
-        let (cap_center, cap_w) = if self.capital_enabled && cols >= 12 {
-            let cap_w:   usize = (cols / 4).clamp(14, 36);
-            let base_h:  u8    = 22;
-            let taper:   usize = (cap_w / 6).clamp(2, 4); // cols on each edge that taper
-            let cap_start = (cols / 2).saturating_sub(cap_w / 2);
-
-            for i in 0..cap_w {
-                let c = cap_start + i;
-                if c >= cols { break; }
-
-                // Distance from nearest edge — 0 at corners, increases inward
-                let dist_edge = i.min(cap_w.saturating_sub(1).saturating_sub(i));
-                // Each step inward from the taper zone adds 2 rows of height
-                let h = if dist_edge < taper {
-                    base_h.saturating_sub(((taper - dist_edge) * 2) as u8)
-                } else {
-                    base_h
-                };
-                // Spire only on center column of the full-height core
-                let antenna_h = if i == cap_w / 2 { 8u8 } else { 0 };
-                let is_edge   = dist_edge == 0;
-
-                city[c]  = h;
-                meta[c] = ColMeta {
-                    shade_idx:  1,
-                    windows:    !is_edge,
-                    rel_col:    i as u8,
-                    antenna_h,
-                    seed:       0xCA91_7A1Cu32,
-                    is_capital: true,
-                };
-            }
-            (cols / 2, cap_w)
-        } else {
-            (0, 0)
-        };
 
         self.city_target       = city.clone();
         self.city              = city;
@@ -730,27 +744,6 @@ impl MissilesViz {
         self.city_needs_reroll = vec![false; cols];
         self.city_cols         = cols;
         self.city_density_cur  = self.city_density.clone();
-        self.capital_center    = cap_center;
-        self.capital_width     = cap_w;
-
-        // ── Background city layer ──────────────────────────────────────────────
-        // Sparse, low silhouette rendered behind the main city.
-        let mut bg_lcg: u64 = (0xDEAD_BEEF ^ (cols as u64 * 1234567891))
-                              .wrapping_add(dseed.wrapping_add(1));
-        let mut bg_city = vec![0u8; cols];
-        let mut bc = 0usize;
-        while bc < cols {
-            let gap = 1 + (next(&mut bg_lcg) * 3.0) as usize;
-            bc += gap;
-            if bc >= cols { break; }
-            if next(&mut bg_lcg) > 0.6 { bc += 1; continue; }
-            let w = 2 + (next(&mut bg_lcg) * 4.0) as usize;
-            let h = (1.0 + next(&mut bg_lcg) * 4.0) as u8;
-            let w = w.min(cols - bc);
-            for i in 0..w { bg_city[bc + i] = h; }
-            bc += w;
-        }
-        self.bg_city = bg_city;
     }
 
     fn blast_city(&mut self, cx: f32, cy: f32, radius: f32, ground: usize) {
@@ -922,11 +915,7 @@ impl Visualizer for MissilesViz {
                 { "name": "smoke_enabled",    "display_name": "[FX] Smoke",              "type": "bool",  "value": true  },
                 { "name": "stars_enabled",    "display_name": "[Sky] Stars",             "type": "bool",  "value": true  },
                 { "name": "star_layers",      "display_name": "[Sky] Star Layers",       "type": "int",   "value": 2,     "min": 1,    "max": 3   },
-                { "name": "aurora_enabled",   "display_name": "[Sky] Aurora",            "type": "bool",  "value": true  },
-                { "name": "aurora_intensity", "display_name": "[Sky] Aurora Intensity",  "type": "float", "value": 0.6,   "min": 0.1,  "max": 1.5 },
                 { "name": "city_density",     "display_name": "[City] Density",          "type": "enum",  "value": "normal", "variants": ["sparse","normal","dense"] },
-                { "name": "capital_enabled",  "display_name": "[City] Capital",          "type": "bool",  "value": true  },
-                { "name": "bg_city_enabled",  "display_name": "[City] Background Layer", "type": "bool",  "value": true  },
                 { "name": "rubble_enabled",   "display_name": "[City] Rubble",           "type": "bool",  "value": true  },
                 { "name": "crater_enabled",   "display_name": "[City] Craters",          "type": "bool",  "value": true  },
                 { "name": "regrow_speed",     "display_name": "[City] Regrow Speed",     "type": "float", "value": 1.0,   "min": 0.0,  "max": 5.0 },
@@ -968,16 +957,9 @@ impl Visualizer for MissilesViz {
                     Some("bomber_enabled")    => self.bomber_enabled     = entry["value"].as_bool().unwrap_or(true),
                     Some("shockwave_enabled") => self.shockwave_enabled  = entry["value"].as_bool().unwrap_or(true),
                     Some("scorch_enabled")    => self.scorch_enabled     = entry["value"].as_bool().unwrap_or(true),
-                    Some("aurora_enabled")    => self.aurora_enabled     = entry["value"].as_bool().unwrap_or(true),
-                    Some("aurora_intensity")  => self.aurora_intensity   = entry["value"].as_f64().unwrap_or(0.6) as f32,
                     Some("star_layers")       => self.star_layers        = entry["value"].as_i64().unwrap_or(2) as u8,
-                    Some("bg_city_enabled")   => self.bg_city_enabled    = entry["value"].as_bool().unwrap_or(true),
                     Some("rubble_enabled")    => self.rubble_enabled     = entry["value"].as_bool().unwrap_or(true),
                     Some("crater_enabled")    => self.crater_enabled     = entry["value"].as_bool().unwrap_or(true),
-                    Some("capital_enabled")   => {
-                        self.capital_enabled = entry["value"].as_bool().unwrap_or(true);
-                        self.city_cols = 0;  // force regen so capital appears/disappears immediately
-                    }
                     Some("regrow_speed")      => self.regrow_speed       = entry["value"].as_f64().unwrap_or(1.0) as f32,
                     Some("speed_variance")    => self.speed_variance     = entry["value"].as_f64().unwrap_or(0.0) as f32,
                     _ => {}
@@ -1009,7 +991,6 @@ impl Visualizer for MissilesViz {
         self.tick_missiles(&ctx);
         self.tick_effects(&ctx);
         self.tick_city(&ctx);
-        self.tick_capital_defense(&ctx);
     }
 
     fn render(&self, size: TermSize, fps: f32) -> Vec<String> {
@@ -1021,9 +1002,7 @@ impl Visualizer for MissilesViz {
 
         let mut grid: Vec<Vec<(char, u8, bool)>> = vec![vec![(' ', 0, false); cols]; vis];
 
-        self.render_aurora(&mut grid, cols, vis);
         self.render_stars(&mut grid, cols, vis);
-        self.render_bg_city(&mut grid, cols, vis, ground, &td);
         self.render_explosions(&mut grid, cols, vis, &td);
         self.render_shockwaves(&mut grid, cols, vis);
         self.render_smoke(&mut grid, cols, vis);
@@ -1087,7 +1066,6 @@ impl MissilesViz {
         while self.audio_history.len() > SPARK_LEN { self.audio_history.pop_front(); }
 
         self.win_phase    += (0.3 + overall * 2.5) * dt;
-        self.aurora_phase += (0.05 + overall * 0.3) * dt;
 
         // Resize scorch if needed
         if self.scorch.len() != cols { self.scorch.resize(cols, 0.0); }
@@ -1631,35 +1609,9 @@ impl MissilesViz {
                 // Reroll destroyed building before regrowing.
                 // Capital columns restore to their original stepped profile.
                 if self.city_needs_reroll[c] && self.city[c] == 0 && rng.r#gen::<f32>() < 0.15 * dt {
-                    if self.capital_enabled && self.city_meta[c].is_capital && self.capital_width > 0 {
-                        // Restore One WTC profile for this column
-                        let cap_w     = self.capital_width;
-                        let cap_start = self.capital_center.saturating_sub(cap_w / 2);
-                        let i         = c.saturating_sub(cap_start);
-                        let base_h: u8 = 22;
-                        let taper      = (cap_w / 6).clamp(2, 4);
-                        let dist_edge  = i.min(cap_w.saturating_sub(1).saturating_sub(i));
-                        let h = if dist_edge < taper {
-                            base_h.saturating_sub(((taper - dist_edge) * 2) as u8)
-                        } else {
-                            base_h
-                        };
-                        let antenna_h = if i == cap_w / 2 { 8u8 } else { 0 };
-                        let is_edge   = dist_edge == 0;
-                        self.city_target[c] = h;
-                        self.city_meta[c]   = ColMeta {
-                            shade_idx:  1,
-                            windows:    !is_edge,
-                            rel_col:    i as u8,
-                            antenna_h,
-                            seed:       0xCA91_7A1Cu32,
-                            is_capital: true,
-                        };
-                    } else {
-                        let (new_h, new_meta)     = gen_building_col(&mut rng);
-                        self.city_target[c]       = new_h;
-                        self.city_meta[c]         = new_meta;
-                    }
+                    let (new_h, new_meta)     = gen_building_col(&mut rng);
+                    self.city_target[c]       = new_h;
+                    self.city_meta[c]         = new_meta;
                     self.city_needs_reroll[c] = false;
                 }
 
@@ -1686,75 +1638,7 @@ impl MissilesViz {
         self.entry_streaks.retain(|s| s.1 > 0.0);
     }
 
-    // ── tick_capital_defense ──────────────────────────────────────────────────
-    /// Capital last-stand emergency interceptors.
-    fn tick_capital_defense(&mut self, ctx: &TickCtx) {
-        if !self.capital_enabled || self.capital_width == 0 { return; }
-        let TickCtx { vis, ground, dt, .. } = *ctx;
-
-        let cap_l = self.capital_center.saturating_sub(self.capital_width / 2) as f32;
-        let cap_r = (self.capital_center + self.capital_width / 2) as f32;
-        let cap_health = {
-            let (c_cur, c_tgt) = self.city_meta.iter().zip(self.city.iter())
-                .zip(self.city_target.iter())
-                .filter(|((m, _), _)| m.is_capital)
-                .map(|((_, &c), &t)| (c as usize, t as usize))
-                .fold((0usize, 0usize), |(ac, at), (c, t)| (ac + c, at + t));
-            if c_tgt > 0 { c_cur as f32 / c_tgt as f32 } else { 1.0 }
-        };
-        if cap_health < CAPITAL_LAST_STAND_HEALTH {
-            self.capital_defense_cool -= dt;
-            if self.capital_defense_cool <= 0.0 {
-                let missile_snap: Vec<(u64, f32, f32, f32)> = self.missiles.iter()
-                    .map(|m| (m.id, m.x, m.y, m.vy)).collect();
-                for &(mid, mx, my, mvy) in &missile_snap {
-                    let _rows_left = (vis as f32 - my) / mvy.max(0.001);
-                    // Use a rough dx=0 estimate for where the missile will land
-                    if mx >= cap_l - 8.0 && mx <= cap_r + 8.0 {
-                        // Launch emergency interceptor from nearest capital column
-                        let launch_c = ((cap_l + cap_r) / 2.0) as usize;
-                        let h        = if launch_c < self.city.len() { self.city[launch_c] as usize } else { 0 };
-                        let launch_y = (ground.saturating_sub(h)) as f32;
-                        let ddx      = mx - launch_c as f32;
-                        let ddy      = ground as f32 - launch_y;
-                        let dist     = (ddx * ddx + ddy * ddy).sqrt().max(0.001);
-                        let isp_em   = vis as f32 * 1.2 * self.speed * self.intercept_speed;
-                        self.interceptors.push(Interceptor {
-                            x: launch_c as f32, y: launch_y,
-                            vx: (ddx / dist) * isp_em, vy: (ddy / dist) * isp_em,
-                            target_id: mid, tx: mx, ty: my,
-                            launch_col: launch_c, dead: false,
-                        });
-                        self.capital_defense_cool = 0.4;
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
     // ── render sub-methods ────────────────────────────────────────────────────
-
-    // ── render_aurora ─────────────────────────────────────────────────────────
-    fn render_aurora(&self, grid: &mut Vec<Vec<(char, u8, bool)>>, cols: usize, vis: usize) {
-        if !self.aurora_enabled { return; }
-        let sky_rows   = vis / 2;
-        let aurora_pal = theme_data(&self.theme).interceptor_colors;
-        for r in 0..sky_rows {
-            let row_frac = r as f32 / sky_rows.max(1) as f32;
-            for c in 0..cols {
-                let wave = ((c as f32 * 0.04 + self.aurora_phase * 1.3 + row_frac * 2.5).sin()
-                           + (c as f32 * 0.017 - self.aurora_phase * 0.7).sin()) * 0.5;
-                let intensity = ((wave + 1.0) * 0.5) * self.aurora_intensity * (1.0 - row_frac * 0.7);
-                if intensity < 0.18 { continue; }
-                if grid[r][c].0 != ' ' { continue; }
-                let pi  = ((1.0 - intensity.min(1.0)) * (aurora_pal.len() - 1) as f32) as usize;
-                let col = aurora_pal[pi.min(aurora_pal.len() - 1)];
-                let ch  = if intensity > 0.75 { '▒' } else if intensity > 0.45 { '░' } else { '·' };
-                grid[r][c] = (ch, col, false);
-            }
-        }
-    }
 
     // ── render_stars ──────────────────────────────────────────────────────────
     fn render_stars(&self, grid: &mut Vec<Vec<(char, u8, bool)>>, cols: usize, vis: usize) {
@@ -1781,22 +1665,6 @@ impl MissilesViz {
                 if let Some((ch, color)) = cell {
                     grid[r][c] = (ch, color, false);
                 }
-            }
-        }
-    }
-
-    // ── render_bg_city ────────────────────────────────────────────────────────
-    fn render_bg_city(&self, grid: &mut Vec<Vec<(char, u8, bool)>>, cols: usize, vis: usize, ground: usize, td: &ThemeData) {
-        if !self.bg_city_enabled || self.bg_city.is_empty() { return; }
-        let n_shades = td.city_shades.len().max(1);
-        let bg_color = td.city_shades[2 % n_shades];   // darkest shade
-        for c in 0..cols.min(self.bg_city.len()) {
-            let h = self.bg_city[c] as usize;
-            if h == 0 { continue; }
-            for row_off in 0..h {
-                let r = ground.saturating_sub(row_off + 1);
-                if r >= vis || grid[r][c].0 != ' ' { continue; }
-                grid[r][c] = ('█', bg_color, false);
             }
         }
     }
@@ -2027,34 +1895,19 @@ impl MissilesViz {
 
             let base_color = {
                 let raw = td.city_shades[(m.shade_idx as usize) % n_shades];
-                let raw = if expl_glow > 0.55 { 231u8 }
-                          else if expl_glow > 0.30 { td.city_shades[1 % n_shades] }
-                          else { raw };
-                // Capital last-stand pulse: flash orange/red when critically damaged
-                if m.is_capital && tgt_h > 0 && (cur_h as f32 / tgt_h as f32) < MERCY_HEALTH_THRESHOLD {
-                    let phase = (self.win_phase * 4.0).sin();
-                    if phase > 0.0 { 214u8 } else { 196 }
-                } else { raw }
+                if expl_glow > 0.55 { 231u8 }
+                else if expl_glow > 0.30 { td.city_shades[1 % n_shades] }
+                else { raw }
             };
 
             // Antenna
-            if cur_h > 0 && m.antenna_h > 0 {
-                // Capital: spire stays visible while > 25% intact; dims under heavy damage.
-                // Regular buildings: only when fully intact.
-                let dmg_ratio    = if tgt_h > 0 { 1.0 - cur_h as f32 / tgt_h as f32 } else { 0.0 };
-                let show_antenna = if m.is_capital { dmg_ratio < 0.75 } else { cur_h == tgt_h };
-                if show_antenna {
-                    let ant_color = if m.is_capital && dmg_ratio > 0.40 {
-                        td.city_shades[2 % n_shades]   // spire dims to dark shade when badly hurt
-                    } else {
-                        td.antenna_color
-                    };
-                    for a in 1..=(m.antenna_h as usize) {
-                        let r = ground.saturating_sub(cur_h + a);
-                        if r >= vis || grid[r][c].0 != ' ' { continue; }
-                        let ch = if a == m.antenna_h as usize { '╻' } else { '│' };
-                        grid[r][c] = (ch, ant_color, a == m.antenna_h as usize);
-                    }
+            if cur_h > 0 && m.antenna_h > 0 && cur_h == tgt_h {
+                let ant_color = td.antenna_color;
+                for a in 1..=(m.antenna_h as usize) {
+                    let r = ground.saturating_sub(cur_h + a);
+                    if r >= vis || grid[r][c].0 != ' ' { continue; }
+                    let ch = if a == m.antenna_h as usize { '╻' } else { '│' };
+                    grid[r][c] = (ch, ant_color, a == m.antenna_h as usize);
                 }
             }
 
@@ -2077,37 +1930,6 @@ impl MissilesViz {
                 let is_gnd     = row_off == 0;
                 let can_window = m.windows && !is_top && !is_gnd;
 
-                // ── Capital progressive damage tiers ──────────────────────────
-                // Visualise erosion as `░▒▓` graduating from the topmost rows
-                // downward into the still-standing structure, so even a tall
-                // undestroyed spire clearly shows how badly it's been hit.
-                if m.is_capital && cur_h < tgt_h {
-                    let dmg_ratio    = 1.0 - cur_h as f32 / tgt_h.max(1) as f32;
-                    let damaged_rows = ((dmg_ratio * 5.0).ceil() as usize).min(cur_h);
-                    let rows_from_top = cur_h - row_off;  // 1 = topmost remaining row
-
-                    let (ch, color, bold) = if rows_from_top <= damaged_rows {
-                        // Visible eroded zone — gets lighter toward the very top
-                        let zone_frac = rows_from_top as f32 / damaged_rows.max(1) as f32;
-                        let ch    = if zone_frac < 0.35 { '░' }
-                                    else if zone_frac < 0.65 { '▒' }
-                                    else                     { '▓' };
-                        let color = td.city_shades[(if zone_frac < 0.5 { 2 } else { 0 }) % n_shades];
-                        (ch, color, false)
-                    } else if is_top {
-                        ('▀', base_color, false)
-                    } else if can_window {
-                        let lit = self.recovery_flash > 0.0
-                                  || win_lit(m.rel_col, row_off, m.seed, self.win_phase);
-                        if lit { ('▓', td.window_lit, false) } else { ('░', td.window_dark, false) }
-                    } else if is_gnd { ('█', td.city_shades[2 % n_shades], false) }
-                    else              { ('█', base_color, false) };
-
-                    grid[r][c] = (ch, color, bold);
-                    continue;
-                }
-
-                // ── Regular building rendering ────────────────────────────────
                 let (ch, color, bold) = if is_damaged {
                     let rubble = if (c + row_off) % 2 == 0 { '▄' } else { '░' };
                     (rubble, td.city_shades[2 % n_shades], false)
