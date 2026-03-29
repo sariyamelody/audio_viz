@@ -33,3 +33,11 @@ jobs:
         run: |
           git merge upstream/main --ff-only
           git push
+
+      - name: Rebase fork-meta onto main
+        if: steps.check.outputs.synced == 'false'
+        run: |
+          git fetch origin sariyamelody/fork-meta
+          git checkout -b fork-meta origin/sariyamelody/fork-meta
+          git rebase main
+          git push --force-with-lease origin HEAD:sariyamelody/fork-meta
