@@ -610,9 +610,32 @@ impl MissilesViz {
         let h_office   = match density { "sparse" => (2.0f32, 2.0), "dense" => (3.0, 4.0), _ => (3.0, 3.0) };
         let h_block    = match density { "sparse" => (1.0f32, 1.0), "dense" => (2.0, 2.0), _ => (2.0, 1.5) };
 
-        let mut city = vec![0u8;              cols];
-        let mut meta = vec![ColMeta::default(); cols];
-        let mut c    = 0usize;
+        // ── Initialize terrain grid ────────────────────────────────────────────
+        self.terrain = vec![vec![]; cols];
+
+        let mut c = 0usize;
+
+        // Helper: stamp body cells for a column of height h with optional windows/antenna
+        // Returns the vec of TerrainCells for that column.
+        let stamp_col = |h: usize, has_windows: bool, shade_color: u8,
+                         ant_h: usize, antenna_color: u8, seed: u32, phase: f32,
+                         rel_col: u8| -> Vec<TerrainCell> {
+            let mut cells = Vec::with_capacity(h + ant_h);
+            for row in 0..h {
+                let kind = if row == h - 1 {
+                    CellKind::Top
+                } else if has_windows && row > 0 && win_lit(rel_col, row, seed, phase) {
+                    CellKind::Window
+                } else {
+                    CellKind::Solid
+                };
+                cells.push(TerrainCell { kind, color: shade_color, lit: false });
+            }
+            for _ in 0..ant_h {
+                cells.push(TerrainCell { kind: CellKind::Antenna, color: antenna_color, lit: false });
+            }
+            cells
+        };
 
         while c < cols {
             let gap = 1 + (next(&mut lcg) * max_gap as f32) as usize;
@@ -626,7 +649,7 @@ impl MissilesViz {
             let shade = (next(&mut lcg) * 3.0) as u8;
 
             // ── Building type dispatch ────────────────────────────────────────────
-            // 8 types: obelisk, skyscraper, tower, office, cathedral, factory, block, slab, ziggurat
+            // 9 types: obelisk, skyscraper, tower, office, cathedral, factory, block, slab, ziggurat
             enum BldType { Obelisk, Skyscraper, Tower, Office, Cathedral, Factory, Block, Slab, Ziggurat }
             let bld_type = if btype < 0.06 {
                 BldType::Obelisk
@@ -648,56 +671,60 @@ impl MissilesViz {
                 BldType::Ziggurat
             };
 
+            // Antenna color placeholder (will resolve from theme at render time,
+            // but we store a known color index; 0 = use shade color)
+            // We use a fixed representative value; render_city will use td.antenna_color.
+            // For terrain we store 0 to mean "antenna native" and render handles it.
+            let ant_native = 46u8; // placeholder; overridden in render by td.antenna_color
+
             match bld_type {
                 BldType::Obelisk => {
                     // 1 col wide, very tall, large antenna, no windows
-                    let h   = (20.0 + next(&mut lcg) * 8.0) as u8;
-                    let ant = 5 + (next(&mut lcg) * 3.0) as u8;
+                    let h   = (20.0 + next(&mut lcg) * 8.0) as usize;
+                    let ant = 5 + (next(&mut lcg) * 3.0) as usize;
                     if c >= cols { c += 1; continue; }
-                    city[c] = h;
-                    meta[c] = ColMeta { shade_idx: shade, windows: false, rel_col: 0, antenna_h: ant, seed };
+                    self.terrain[c] = stamp_col(h, false, shade, ant, ant_native, seed, 0.0, 0);
                     c += 1;
                 }
                 BldType::Skyscraper => {
                     let w   = 1 + (next(&mut lcg) * 1.5) as usize;
-                    let h   = (14.0 + next(&mut lcg) * 8.0) as u8;
-                    let ant = 2 + (next(&mut lcg) * 2.0) as u8;
+                    let h   = (14.0 + next(&mut lcg) * 8.0) as usize;
+                    let ant = 2 + (next(&mut lcg) * 2.0) as usize;
                     let w   = w.min(cols - c);
                     if w == 0 { c += 1; continue; }
                     for i in 0..w {
-                        city[c + i] = h;
-                        let is_edge = i == 0 || i + 1 == w;
+                        let is_edge  = i == 0 || i + 1 == w;
                         let this_ant = if i == w / 2 { ant } else { 0 };
-                        meta[c + i] = ColMeta { shade_idx: shade, windows: w >= 2 && !is_edge, rel_col: i as u8, antenna_h: this_ant, seed };
+                        let has_win  = w >= 2 && !is_edge;
+                        self.terrain[c + i] = stamp_col(h, has_win, shade, this_ant, ant_native, seed, 0.0, i as u8);
                     }
                     c += w;
                 }
                 BldType::Tower => {
                     let w   = 1 + (next(&mut lcg) * 1.5) as usize;
-                    let h   = (h_tower.0 + next(&mut lcg) * h_tower.1) as u8;
-                    let ant = 1 + (next(&mut lcg) * 2.0) as u8;
+                    let h   = (h_tower.0 + next(&mut lcg) * h_tower.1) as usize;
+                    let ant = 1 + (next(&mut lcg) * 2.0) as usize;
                     let w   = w.min(cols - c);
                     if w == 0 { c += 1; continue; }
                     for i in 0..w {
-                        city[c + i] = h;
                         let this_ant = if i == w / 2 { ant } else { 0 };
-                        meta[c + i] = ColMeta { shade_idx: shade, windows: false, rel_col: i as u8, antenna_h: this_ant, seed };
+                        self.terrain[c + i] = stamp_col(h, false, shade, this_ant, ant_native, seed, 0.0, i as u8);
                     }
                     c += w;
                 }
                 BldType::Office => {
-                    // Stepped crown: center cols taller
+                    // Stepped crown: interior cols taller
                     let w = (3 + (next(&mut lcg) * 2.5) as usize).min(cols - c);
                     if w == 0 { c += 1; continue; }
-                    let h = (h_office.0 + next(&mut lcg) * h_office.1) as u8;
+                    let h = (h_office.0 + next(&mut lcg) * h_office.1) as usize;
                     for i in 0..w {
                         let center = (w as isize - 1) / 2;
                         let dist   = (i as isize - center).unsigned_abs();
                         let steps  = (w / 2).saturating_sub(dist);
-                        let col_h  = h.saturating_add(steps as u8);
-                        city[c + i] = col_h;
+                        let col_h  = h + steps;
                         let is_edge = i == 0 || i + 1 == w;
-                        meta[c + i] = ColMeta { shade_idx: shade, windows: !is_edge && w > 2, rel_col: i as u8, antenna_h: 0, seed };
+                        let has_win = !is_edge && w > 2;
+                        self.terrain[c + i] = stamp_col(col_h, has_win, shade, 0, ant_native, seed, 0.0, i as u8);
                     }
                     c += w;
                 }
@@ -705,48 +732,45 @@ impl MissilesViz {
                     // Peaked center: center col tallest, each outward col 1 row shorter
                     let w      = (5 + (next(&mut lcg) * 3.0) as usize).min(cols - c);
                     if w == 0 { c += 1; continue; }
-                    let peak_h = (8.0 + next(&mut lcg) * 6.0) as u8;
+                    let peak_h = (8.0 + next(&mut lcg) * 6.0) as usize;
                     for i in 0..w {
                         let dist_from_center = (i as isize - (w / 2) as isize).unsigned_abs();
-                        let col_h = peak_h.saturating_sub(dist_from_center as u8).max(1);
-                        city[c + i] = col_h;
+                        let col_h = peak_h.saturating_sub(dist_from_center).max(2);
                         let is_edge = i == 0 || i + 1 == w;
-                        meta[c + i] = ColMeta { shade_idx: shade, windows: !is_edge, rel_col: i as u8, antenna_h: 0, seed };
+                        let has_win = !is_edge;
+                        self.terrain[c + i] = stamp_col(col_h, has_win, shade, 0, ant_native, seed, 0.0, i as u8);
                     }
                     c += w;
                 }
                 BldType::Factory => {
                     let w   = (4 + (next(&mut lcg) * 3.0) as usize).min(cols - c);
                     if w == 0 { c += 1; continue; }
-                    let h   = (3.0 + next(&mut lcg) * 2.0) as u8;
-                    let ant = 3 + (next(&mut lcg) * 2.0) as u8;
+                    let h   = (3.0 + next(&mut lcg) * 2.0) as usize;
+                    let ant = 3 + (next(&mut lcg) * 2.0) as usize;
                     for i in 0..w {
-                        city[c + i] = h;
-                        // chimney antenna on last column
+                        // chimney antenna on last column only, no windows
                         let this_ant = if i + 1 == w { ant } else { 0 };
-                        meta[c + i] = ColMeta { shade_idx: shade, windows: false, rel_col: i as u8, antenna_h: this_ant, seed };
+                        self.terrain[c + i] = stamp_col(h, false, shade, this_ant, ant_native, seed, 0.0, i as u8);
                     }
                     c += w;
                 }
                 BldType::Block => {
                     let w = (4 + (next(&mut lcg) * 4.0) as usize).min(cols - c);
                     if w == 0 { c += 1; continue; }
-                    let h = (h_block.0 + next(&mut lcg) * h_block.1) as u8;
+                    let h = (h_block.0 + next(&mut lcg) * h_block.1) as usize;
                     for i in 0..w {
-                        city[c + i] = h;
-                        meta[c + i] = ColMeta { shade_idx: shade, windows: false, rel_col: i as u8, antenna_h: 0, seed };
+                        self.terrain[c + i] = stamp_col(h, false, shade, 0, ant_native, seed, 0.0, i as u8);
                     }
                     c += w;
                 }
                 BldType::Slab => {
-                    // Brutalist megablock: very wide, all interior cols have windows
+                    // Brutalist megablock: very wide, interior cols have windows
                     let w = (8 + (next(&mut lcg) * 6.0) as usize).min(cols - c);
                     if w == 0 { c += 1; continue; }
-                    let h = (4.0 + next(&mut lcg) * 4.0) as u8;
+                    let h = (4.0 + next(&mut lcg) * 4.0) as usize;
                     for i in 0..w {
-                        city[c + i] = h;
                         let is_edge = i == 0 || i + 1 == w;
-                        meta[c + i] = ColMeta { shade_idx: shade, windows: !is_edge, rel_col: i as u8, antenna_h: 0, seed };
+                        self.terrain[c + i] = stamp_col(h, !is_edge, shade, 0, ant_native, seed, 0.0, i as u8);
                     }
                     c += w;
                 }
@@ -754,44 +778,63 @@ impl MissilesViz {
                     // Strictly pyramidal: center tallest, each col outward 1 row shorter
                     let w      = (6 + (next(&mut lcg) * 4.0) as usize).min(cols - c);
                     if w == 0 { c += 1; continue; }
-                    let center_h = (8.0 + next(&mut lcg) * 6.0) as u8;
+                    let center_h = (8.0 + next(&mut lcg) * 6.0) as usize;
                     for i in 0..w {
                         let dist_from_center = (i as isize - (w / 2) as isize).unsigned_abs();
-                        let col_h = center_h.saturating_sub(dist_from_center as u8).max(1);
-                        city[c + i] = col_h;
-                        meta[c + i] = ColMeta { shade_idx: shade, windows: false, rel_col: i as u8, antenna_h: 0, seed };
+                        let col_h = center_h.saturating_sub(dist_from_center).max(1);
+                        self.terrain[c + i] = stamp_col(col_h, false, shade, 0, ant_native, seed, 0.0, i as u8);
                     }
                     c += w;
                 }
             }
         }
 
-        self.city_target       = city.clone();
-        self.city              = city;
-        self.city_meta         = meta;
-        self.city_regrow       = vec![0.0f32; cols];
-        self.city_needs_reroll = vec![false; cols];
-        self.city_cols         = cols;
-        self.city_density_cur  = self.city_density.clone();
+        // Snapshot origin and init repair
+        self.terrain_origin = self.terrain.iter().map(|col| col.iter().map(|cell| cell.kind).collect()).collect();
+        self.terrain_repair = self.terrain.iter().map(|col| vec![0.0f32; col.len()]).collect();
+
+        self.city_cols        = cols;
+        self.city_density_cur = self.city_density.clone();
     }
 
-    fn blast_city(&mut self, cx: f32, cy: f32, radius: f32, ground: usize) {
-        if cy < (ground as f32) - radius * 1.2 { return; }
-        let cols        = self.city.len();
-        let horiz_reach = (radius * 2.2) as isize;
-        let cx_i        = cx as isize;
-        for dc in -horiz_reach..=horiz_reach {
-            let c = cx_i + dc;
-            if c < 0 || c as usize >= cols { continue; }
-            let c       = c as usize;
-            let dist    = (dc as f32 * 0.5).abs();
-            let falloff = (1.0 - dist / (horiz_reach as f32 * 0.5 + 0.1)).max(0.0);
-            let dmg     = (falloff * 3.0 + 0.5) as u8;
-            self.city[c] = self.city[c].saturating_sub(dmg);
-            if self.city[c] == 0 && c < self.city_needs_reroll.len() {
-                self.city_needs_reroll[c] = true;
+    fn blast_city(&mut self, cx: f32, cy: f32, max_r: f32, ground: usize) {
+        let cy_g = ground as f32 - cy;   // convert screen-row to row_from_ground
+        let cols = self.terrain.len();
+        for col in 0..cols {
+            for row in 0..self.terrain[col].len() {
+                let dc = (col as f32 - cx) * 0.5;
+                let dr = row as f32 - cy_g;
+                let dist = (dc * dc + dr * dr).sqrt();
+                if dist >= max_r { continue; }
+                let cell = &mut self.terrain[col][row];
+                match cell.kind {
+                    CellKind::Empty | CellKind::Blown | CellKind::Rubble => {}
+                    _ => {
+                        if dist < max_r * 0.35 {
+                            cell.kind = CellKind::Blown;
+                        } else if dist < max_r * 0.65 {
+                            cell.kind = CellKind::Cracked;
+                        }
+                    }
+                }
             }
-            if c < self.city_regrow.len() { self.city_regrow[c] = 0.0; }
+        }
+        self.check_structural_collapse();
+    }
+
+    fn check_structural_collapse(&mut self) {
+        for col in 0..self.terrain.len() {
+            if self.terrain[col].len() < 2 { continue; }
+            let base_blown = self.terrain[col][0].kind == CellKind::Blown
+                          && self.terrain[col][1].kind == CellKind::Blown;
+            if base_blown {
+                for row in 2..self.terrain[col].len() {
+                    let k = &mut self.terrain[col][row].kind;
+                    if *k != CellKind::Empty && *k != CellKind::Blown {
+                        *k = CellKind::Rubble;
+                    }
+                }
+            }
         }
     }
 
@@ -821,9 +864,13 @@ impl MissilesViz {
     }
 
     fn city_health(&self) -> f32 {
-        let cur: usize = self.city.iter().map(|&h| h as usize).sum();
-        let tgt: usize = self.city_target.iter().map(|&h| h as usize).sum();
-        if tgt == 0 { 1.0 } else { (cur as f32 / tgt as f32).clamp(0.0, 1.0) }
+        let (alive, total) = self.terrain.iter().flatten()
+            .filter(|c| c.kind != CellKind::Empty)
+            .fold((0usize, 0usize), |(a, t), cell| {
+                let intact = !matches!(cell.kind, CellKind::Blown | CellKind::Rubble);
+                (a + intact as usize, t + 1)
+            });
+        if total == 0 { 1.0 } else { alive as f32 / total as f32 }
     }
 
     /// Build the rich stats line.
