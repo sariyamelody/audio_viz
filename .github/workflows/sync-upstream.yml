@@ -27,8 +27,8 @@ jobs:
             echo "synced=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Merge upstream changes
+      - name: Sync upstream changes
         if: steps.check.outputs.synced == 'false'
         run: |
-          git merge upstream/main --ff-only
-          git push
+          git rebase upstream/main
+          git push --force-with-lease
