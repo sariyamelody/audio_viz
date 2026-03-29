@@ -12,6 +12,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: main
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check for upstream changes
@@ -30,5 +31,5 @@ jobs:
       - name: Sync upstream changes
         if: steps.check.outputs.synced == 'false'
         run: |
-          git rebase upstream/main
-          git push --force-with-lease
+          git merge upstream/main --ff-only
+          git push
