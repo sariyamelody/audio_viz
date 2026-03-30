@@ -787,15 +787,17 @@ impl MissilesViz {
 
     fn check_structural_collapse(&mut self) {
         for col in 0..self.terrain.len() {
-            if self.terrain[col].len() < 2 { continue; }
-            let base_blown = self.terrain[col][0].kind == CellKind::Blown
-                          && self.terrain[col][1].kind == CellKind::Blown;
-            if base_blown {
-                for row in 2..self.terrain[col].len() {
+            // Scan bottom-up: the first Blown cell breaks the load path from the
+            // ground, so every cell above it is unsupported and collapses to rubble.
+            let mut support_broken = false;
+            for row in 0..self.terrain[col].len() {
+                if support_broken {
                     let k = &mut self.terrain[col][row].kind;
-                    if *k != CellKind::Empty && *k != CellKind::Blown {
+                    if !matches!(*k, CellKind::Empty | CellKind::Blown | CellKind::Rubble) {
                         *k = CellKind::Rubble;
                     }
+                } else if self.terrain[col][row].kind == CellKind::Blown {
+                    support_broken = true;
                 }
             }
         }
