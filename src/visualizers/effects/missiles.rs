@@ -29,49 +29,51 @@
 ///   ~L63   Constants (CONFIG_VERSION, SPARK_LEN, SPARK_CHARS, gameplay consts)
 ///   ~L85   ThemeData struct + 10 theme constant blocks (classic … candy)
 ///   ~L182  theme_data() — name → ThemeData lookup
-///   ~L267  ColMeta struct — per-column city metadata
-///   ~L275  win_lit()    — deterministic window on/off
-///   ~L286  star_at()    — deterministic star field
-///   ~L299  Data types   — Missile, Interceptor, Explosion, Smoke, Bomber, Shockwave, Crater
-///   ~L369  MissilesViz struct + fields (grouped: entities, audio, city, stats, config, runtime)
-///   ~L445  gen_building_col() — random single-column rebuild after destruction
-///   ~L469  TickCtx struct — per-frame context passed to tick sub-methods
-///   ~L481  impl MissilesViz (public + city helpers)
-///   ~L482    new()
-///   ~L545    regen_city() — LCG city layout + 8 building types (obelisk…ziggurat)
-///   ~L680    blast_city() — apply explosion damage; flags columns for reroll
-///   ~L700    random_dx()  — tiered diagonal distribution
-///   ~L725    city_health()
-///   ~L735    stats_line() — sparkline, city bar, mercy indicator, counters, fps
-///   ~L822  Visualizer impl
-///   ~L825    name() / description()
-///   ~L828    get_default_config()
-///   ~L860    set_config()
-///   ~L905    on_resize()
-///   ~L912    tick()     — coordinator; calls tick sub-methods in order
-///   ~L928    render()   — coordinator; calls render sub-methods in order
-///   ~L975  impl MissilesViz (private sub-methods)
-///   ~L980    tick_audio()           — FFT → bass/overall/treble, rms, beat, stereo pan
-///   ~L1025   tick_lull()            — silence timer, lull flag, sustained-loud timer
-///   ~L1054   tick_spawn()           — normal spawn + lull-just-ended wave burst
-///   ~L1138   tick_mirv()            — MIRV splitting + child interceptors
-///   ~L1198   tick_bomber()          — bomber spawn, movement, drop
-///   ~L1275   tick_interceptors()    — steering, turn-rate limit, mid-blast kill, trails
-///   ~L1357   tick_hits()            — direct hit + splash kill detection
-///   ~L1406   tick_missiles()        — advance missiles, ground impact, explosions/scorch
-///   ~L1467   tick_effects()         — explosions grow/fade/smoke, shockwaves, scorch, craters
-///   ~L1530   tick_city()            — regrow, reroll, recovery flash, entry streak decay
-///   ~L1590   render_stars()
-///   ~L1619   render_explosions()
-///   ~L1667   render_shockwaves()
-///   ~L1692   render_smoke()
-///   ~L1707   render_entry_streaks()
-///   ~L1725   render_missiles()
-///   ~L1753   render_interceptor_trails()
-///   ~L1765   render_interceptors()
-///   ~L1796   render_bombers()
-///   ~L1812   render_city()
-///   ~L1980  register()
+///   ~L289  CellKind enum — terrain cell render type
+///   ~L302  TerrainCell struct — per-cell terrain data
+///   ~L312  win_lit()    — deterministic window on/off
+///   ~L323  star_at()    — deterministic star field
+///   ~L336  Data types   — Missile, Interceptor, Explosion, Smoke, Bomber, Shockwave, Crater
+///   ~L404  MissilesViz struct + fields (grouped: entities, audio, city/terrain, stats, config, runtime)
+///   ~L474  TickCtx struct — per-frame context passed to tick sub-methods
+///   ~L486  impl MissilesViz (public + city helpers)
+///   ~L487    new()
+///   ~L551    regen_city() — LCG city layout + 9 building types stamped into terrain grid
+///   ~L756    blast_city() — radius-based cell damage on terrain grid
+///   ~L781    check_structural_collapse() — collapse cells above blown base
+///   ~L797    random_dx()  — tiered diagonal distribution
+///   ~L822    city_health() — fraction of intact terrain cells
+///   ~L836    stats_line() — sparkline, city bar, mercy indicator, counters, fps
+///   ~L925  Visualizer impl
+///   ~L926    name() / description()
+///   ~L929    get_default_config()
+///   ~L961    set_config()
+///   ~L1004   on_resize()
+///   ~L1011   tick()     — coordinator; calls tick sub-methods in order
+///   ~L1028   render()   — coordinator; calls render sub-methods in order
+///   ~L1075 impl MissilesViz (private sub-methods)
+///   ~L1080   tick_audio()           — FFT → bass/overall/treble, rms, beat, stereo pan
+///   ~L1120   tick_lull()            — silence timer, lull flag, sustained-loud timer
+///   ~L1149   tick_spawn()           — normal spawn + lull-just-ended wave burst
+///   ~L1233   tick_mirv()            — MIRV splitting + child interceptors
+///   ~L1293   tick_bomber()          — bomber spawn, movement, drop
+///   ~L1373   tick_interceptors()    — steering, turn-rate limit, mid-blast kill, trails
+///   ~L1455   tick_hits()            — direct hit + splash kill detection
+///   ~L1504   tick_missiles()        — advance missiles, ground impact, explosions/scorch
+///   ~L1565   tick_effects()         — explosions grow/fade/smoke, shockwaves, scorch, craters
+///   ~L1628   tick_city()            — terrain repair, recovery flash, window flicker
+///   ~L1691   surface_row()          — screen-space surface height for a terrain column
+///   ~L1707   render_stars()
+///   ~L1736   render_explosions()
+///   ~L1784   render_shockwaves()
+///   ~L1809   render_smoke()
+///   ~L1824   render_entry_streaks()
+///   ~L1842   render_missiles()
+///   ~L1870   render_interceptor_trails()
+///   ~L1882   render_interceptors()
+///   ~L1913   render_bombers()
+///   ~L1929   render_city()          — draw terrain grid with cell-kind dispatch
+///   ~L2044 register()
 
 // ── Index: ThemeData@32 · theme_data@129 · entities@247 · MissilesViz@291 · new@330 · regen_city@373 · impl@579 · config@583 · set_config@687 · tick@727 · render@941 · register@1173
 use std::collections::VecDeque;
@@ -309,15 +311,6 @@ struct TerrainCell {
     lit:   bool,   // only used for Window cells
 }
 
-#[derive(Clone, Copy, Default)]
-struct ColMeta {
-    shade_idx:  u8,
-    windows:    bool,
-    rel_col:    u8,
-    antenna_h:  u8,
-    seed:       u32,
-}
-
 fn win_lit(rel_col: u8, row_from_ground: usize, seed: u32, phase: f32) -> bool {
     let p = (phase * 5.0) as u32;
     ((rel_col as u32).wrapping_mul(1009)
@@ -427,16 +420,11 @@ pub struct MissilesViz {
     spawn_cool:    f32,
     audio_history: VecDeque<f32>,
 
-    // ── City state ────────────────────────────────────────────────────────────
-    city:              Vec<u8>,
-    city_target:       Vec<u8>,
-    city_meta:         Vec<ColMeta>,
-    city_regrow:       Vec<f32>,
-    city_cols:         usize,
-    win_phase:         f32,
-    city_needs_reroll: Vec<bool>,
+    // ── City / terrain state ──────────────────────────────────────────────────
+    city_cols:      usize,
+    win_phase:      f32,
 
-    // ── Terrain grid (replaces city height-map) ───────────────────────────────
+    // ── Terrain grid ──────────────────────────────────────────────────────────
     terrain:        Vec<Vec<TerrainCell>>,  // [col][row_from_ground]; row 0 = ground level
     terrain_origin: Vec<Vec<CellKind>>,     // original cell kinds for repair target
     terrain_repair: Vec<Vec<f32>>,          // per-cell repair progress accumulator
@@ -484,31 +472,6 @@ pub struct MissilesViz {
     next_id: u64,
 }
 
-/// Generate a fresh (height, ColMeta) for a single column being rebuilt after destruction.
-/// Uses a provided rng so the result is random per-destruction event.
-fn gen_building_col(rng: &mut impl Rng) -> (u8, ColMeta) {
-    let btype: f32 = rng.r#gen::<f32>();
-    let shade = (rng.r#gen::<f32>() * 3.0) as u8;
-    let seed  = rng.gen_range(0u32..u32::MAX);
-    if btype < 0.12 {
-        // skyscraper stub
-        let h = rng.gen_range(10u8..=18);
-        (h, ColMeta { shade_idx: shade, windows: true, rel_col: 0, antenna_h: rng.gen_range(1u8..=3), seed })
-    } else if btype < 0.30 {
-        // tower stub
-        let h = rng.gen_range(5u8..=11);
-        (h, ColMeta { shade_idx: shade, windows: false, rel_col: 0, antenna_h: rng.gen_range(1u8..=2), seed })
-    } else if btype < 0.55 {
-        // office stub
-        let h = rng.gen_range(2u8..=6);
-        (h, ColMeta { shade_idx: shade, windows: true, rel_col: 1, antenna_h: 0, seed })
-    } else {
-        // rubble stub — short, no frills
-        let h = rng.gen_range(1u8..=3);
-        (h, ColMeta { shade_idx: 2, windows: false, rel_col: 0, antenna_h: 0, seed })
-    }
-}
-
 /// Per-frame context derived from audio + size; passed to tick sub-methods.
 struct TickCtx {
     cols:       usize,
@@ -543,10 +506,6 @@ impl MissilesViz {
                 cfg
             }),
             spawn_cool:   0.0,
-            city:         Vec::new(),
-            city_target:  Vec::new(),
-            city_meta:    Vec::new(),
-            city_regrow:  Vec::new(),
             city_cols:    0,
             win_phase:    0.0,
             audio_history:        VecDeque::new(),
@@ -585,7 +544,6 @@ impl MissilesViz {
             bomber_cool:    0.0,
             craters:       Vec::new(),
             crater_enabled: true,
-            city_needs_reroll: Vec::new(),
             terrain:        Vec::new(),
             terrain_origin: Vec::new(),
             terrain_repair: Vec::new(),
@@ -602,6 +560,10 @@ impl MissilesViz {
             *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
             ((*s >> 33) as f32) / (u32::MAX as f32)
         };
+
+        // Resolve shade palette from theme so stored colors are actual ANSI codes
+        let td       = theme_data(&self.theme);
+        let n_shades = td.city_shades.len().max(1);
 
         // Density-dependent parameters
         let gap_fill   = match density { "sparse" => 0.35f32, "dense" => 0.72, _ => 0.55 };
@@ -644,9 +606,10 @@ impl MissilesViz {
 
             if next(&mut lcg) > gap_fill { c += 1; continue; }
 
-            let btype = next(&mut lcg);
-            let seed  = (lcg >> 32) as u32;
-            let shade = (next(&mut lcg) * 3.0) as u8;
+            let btype       = next(&mut lcg);
+            let seed        = (lcg >> 32) as u32;
+            let shade_idx   = (next(&mut lcg) * n_shades as f32) as usize % n_shades;
+            let shade       = td.city_shades[shade_idx];
 
             // ── Building type dispatch ────────────────────────────────────────────
             // 9 types: obelisk, skyscraper, tower, office, cathedral, factory, block, slab, ziggurat
@@ -1231,11 +1194,11 @@ impl MissilesViz {
 
                 if rng.r#gen::<f32>() < self.intercept_rate {
                     let launch_c = (0..cols)
-                        .filter(|&c| c < self.city.len() && self.city[c] > 0)
+                        .filter(|&c| c < self.terrain.len() && !self.terrain[c].is_empty()
+                            && self.terrain[c].iter().any(|cell| !matches!(cell.kind, CellKind::Empty | CellKind::Blown | CellKind::Rubble)))
                         .min_by_key(|&c| (c as isize - x as isize).unsigned_abs())
                         .unwrap_or(x as usize);
-                    let h        = if launch_c < self.city.len() { self.city[launch_c] as usize } else { 0 };
-                    let launch_y = (ground.saturating_sub(h)) as f32;
+                    let launch_y = self.surface_row(launch_c, ground) as f32;
                     let rows_left = vis as f32 / vy.max(0.001);
                     let target_c  = (x + dx * vy * rows_left).clamp(0.0, (cols - 1) as f32);
                     let ddx       = target_c - launch_c as f32;
@@ -1314,11 +1277,11 @@ impl MissilesViz {
         for (cid, cx, cy, _cvy) in child_info {
             if rng.r#gen::<f32>() >= self.intercept_rate * MIRV_CHILD_INTERCEPT_RATE { continue; }
             let launch_c = (0..cols)
-                .filter(|&c| c < self.city.len() && self.city[c] > 0)
+                .filter(|&c| c < self.terrain.len() && !self.terrain[c].is_empty()
+                    && self.terrain[c].iter().any(|cell| !matches!(cell.kind, CellKind::Empty | CellKind::Blown | CellKind::Rubble)))
                 .min_by_key(|&c| (c as isize - cx as isize).unsigned_abs())
                 .unwrap_or(cx as usize);
-            let h        = if launch_c < self.city.len() { self.city[launch_c] as usize } else { 0 };
-            let launch_y = (ground.saturating_sub(h)) as f32;
+            let launch_y = self.surface_row(launch_c, ground) as f32;
             let ddx      = cx - launch_c as f32;
             let ddy      = ground as f32 - launch_y;
             let dist     = (ddx * ddx + ddy * ddy).sqrt().max(0.001);
@@ -1354,6 +1317,8 @@ impl MissilesViz {
             self.bomber_cool = 18.0 + rand::thread_rng().gen_range(0.0f32..12.0);
         }
         let diag = self.diagonal.clone();
+        // Pre-compute surface rows to avoid borrow conflicts inside the bomber loop
+        let bomber_surface_rows: Vec<usize> = (0..cols).map(|c| self.surface_row(c, ground)).collect();
         let mut new_bomber_missiles:     Vec<Missile>     = Vec::new();
         let mut new_bomber_interceptors: Vec<Interceptor> = Vec::new();
         let mut rng = rand::thread_rng();
@@ -1384,11 +1349,11 @@ impl MissilesViz {
                 let missile_vy = vy;
                 if rng.r#gen::<f32>() < self.intercept_rate * 0.5 {
                     let launch_c = (0..cols)
-                        .filter(|&c| c < self.city.len() && self.city[c] > 0)
+                        .filter(|&c| c < self.terrain.len() && !self.terrain[c].is_empty()
+                            && self.terrain[c].iter().any(|cell| !matches!(cell.kind, CellKind::Empty | CellKind::Blown | CellKind::Rubble)))
                         .min_by_key(|&c| (c as isize - missile_x as isize).unsigned_abs())
                         .unwrap_or(missile_x as usize);
-                    let h         = if launch_c < self.city.len() { self.city[launch_c] as usize } else { 0 };
-                    let launch_y  = (ground.saturating_sub(h)) as f32;
+                    let launch_y  = bomber_surface_rows.get(launch_c).copied().unwrap_or(ground) as f32;
                     let rows_left = vis as f32 / missile_vy.max(0.001);
                     let target_c  = (missile_x + dx * missile_vy * rows_left).clamp(0.0, (cols - 1) as f32);
                     let ddx       = target_c - launch_c as f32;
@@ -2026,7 +1991,7 @@ impl MissilesViz {
                         let ch = if is_tip { '╻' } else { '│' };
                         (ch, td.antenna_color, is_tip)
                     },
-                    CellKind::Cracked => ('▒', cell.color.saturating_sub(12), false),
+                    CellKind::Cracked => ('▒', td.city_shades[n_shades - 1], false),
                     CellKind::Blown   => ('·', 234, false),
                     CellKind::Rubble  => ('▄', td.city_shades[2 % n_shades], false),
                 };
