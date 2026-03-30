@@ -554,7 +554,7 @@ impl MissilesViz {
         let density = self.city_density.as_str();
         // Vary LCG seed so different densities produce different layouts
         let dseed: u64 = match density { "sparse" => 0xAABB, "dense" => 0xCCDD, _ => 0x1122 };
-        let mut lcg: u64 = (0x5851_f42d_4c95_7f2d ^ (cols as u64 * 6364136223846793005))
+        let mut lcg: u64 = (0x5851_f42d_4c95_7f2d ^ (cols as u64).wrapping_mul(6364136223846793005))
                            .wrapping_add(dseed);
         let next = |s: &mut u64| -> f32 {
             *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
