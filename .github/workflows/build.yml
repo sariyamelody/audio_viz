@@ -317,7 +317,7 @@ jobs:
   # ── Deploy to GitHub Pages — main ─────────────────────────────────────────
   deploy-pages:
     needs: web
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.repository == 'Nitepone/audio_viz'
     runs-on: ubuntu-latest
     permissions:
       pages:    write
