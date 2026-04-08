@@ -32,8 +32,8 @@ jobs:
       - name: Sync upstream changes
         if: steps.check.outputs.synced == 'false'
         run: |
-          git merge upstream/main --ff-only
-          git push
+          git reset --hard upstream/main
+          git push --force-with-lease
 
       - name: Rebase fork-meta onto main
         if: steps.check.outputs.synced == 'false'
