@@ -14,12 +14,13 @@ jobs:
         with:
           ref: main
           token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
       - name: Check for upstream changes
         id: check
         run: |
           git remote add upstream https://github.com/Nitepone/audio_viz.git
-          git fetch upstream main --depth=1 --no-tags
+          git fetch upstream main --no-tags
           LOCAL=$(git rev-parse HEAD)
           UPSTREAM=$(git rev-parse upstream/main)
           if [ "$LOCAL" = "$UPSTREAM" ]; then
