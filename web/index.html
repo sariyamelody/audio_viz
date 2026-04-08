@@ -165,7 +165,13 @@
       color: #c0c0c0;
     }
     #settings-panel.open { display: flex; }
-    #reset-btn {
+    #settings-panel .settings-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: auto;
+    }
+    #reset-btn, #share-btn {
       background: #111;
       color: #555;
       border: 1px solid #222;
@@ -174,11 +180,10 @@
       font-size: 11px;
       cursor: pointer;
       outline: none;
-      margin-left: auto;
       transition: border-color 0.15s, color 0.15s;
     }
-    #reset-btn:hover  { border-color: #555; color: #c0c0c0; }
-    #reset-btn:active { background: #1a1a1a; }
+    #reset-btn:hover,  #share-btn:hover  { border-color: #555; color: #c0c0c0; }
+    #reset-btn:active, #share-btn:active { background: #1a1a1a; }
 
     /* ── Overlay (mic permission prompt) ────────────────────────────────── */
     #overlay {

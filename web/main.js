@@ -37,6 +37,82 @@ let fpsSmooth  = 0;
 // categories: Array of [categoryName, [vizName, ...]] pairs, populated on init.
 let categories = [];
 
+// Config decoded from the URL ?config= param, applied once on the first makeViz().
+let pendingUrlConfig = null;
+
+// ── URL share helpers ─────────────────────────────────────────────────────────
+
+/** Encode a merged-config JSON string to URL-safe base64. */
+function encodeConfig(mergedJson) {
+  try {
+    const minified = JSON.stringify(JSON.parse(mergedJson));
+    // Convert to binary string via percent-encoding so non-ASCII survives btoa().
+    const binaryStr = encodeURIComponent(minified).replace(
+      /%([0-9A-F]{2})/gi,
+      (_, hex) => String.fromCharCode(parseInt(hex, 16))
+    );
+    return btoa(binaryStr)
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+  } catch { return null; }
+}
+
+/** Decode a URL-safe base64 config string back to JSON. */
+function decodeConfig(encoded) {
+  try {
+    const base64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+    return decodeURIComponent(
+      Array.from(atob(base64), c => '%' + c.charCodeAt(0).toString(16).padStart(2, '0')).join('')
+    );
+  } catch { return null; }
+}
+
+/** Build a shareable URL for the current visualizer and its settings. */
+function buildShareUrl() {
+  const url = new URL(window.location.href);
+  const name = viz ? viz.name() : vizSelect.value;
+  url.hash = name;
+  url.searchParams.delete('config');
+  if (viz) {
+    const saved = localStorage.getItem(STORAGE_PREFIX + name);
+    if (saved) {
+      const encoded = encodeConfig(saved);
+      if (encoded) url.searchParams.set('config', encoded);
+    }
+  }
+  return url.toString();
+}
+
+/** Update the browser URL to reflect the current visualizer (clears config param). */
+function updateUrlViz(vizName) {
+  try {
+    const url = new URL(window.location.href);
+    url.hash = vizName;
+    url.searchParams.delete('config');
+    history.replaceState(null, '', url.toString());
+  } catch { /* ignore in restricted environments */ }
+}
+
+/** Copy the share URL to the clipboard, with brief button feedback. */
+async function copyShareLink(btn) {
+  const url = buildShareUrl();
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch {
+    // Fallback for browsers without clipboard API
+    const inp = document.createElement('input');
+    inp.value = url;
+    document.body.appendChild(inp);
+    inp.select();
+    try { document.execCommand('copy'); } catch { /* nothing to do */ }
+    document.body.removeChild(inp);
+  }
+  const prev = btn.textContent;
+  btn.textContent = '✓';
+  setTimeout(() => { btn.textContent = prev; }, 1200);
+}
+
 async function initWasm() {
   wasm = await init();
 
@@ -50,12 +126,30 @@ async function initWasm() {
     catSelect.appendChild(opt);
   }
 
-  // Default to whichever category contains 'spectrum', else first category
-  const defaultCat = categories.find(([, names]) => names.includes('spectrum'))?.[0]
-    ?? categories[0]?.[0];
-  if (defaultCat) catSelect.value = defaultCat;
+  // Resolve starting visualizer from URL hash, falling back to 'spectrum'
+  const urlVizName   = decodeURIComponent(window.location.hash.slice(1));
+  const urlConfigB64 = new URLSearchParams(window.location.search).get('config');
 
-  populateVizSelect(catSelect.value, 'spectrum');
+  let startViz = urlVizName || 'spectrum';
+  let startCat = null;
+  for (const [cat, names] of categories) {
+    if (names.includes(startViz)) { startCat = cat; break; }
+  }
+  if (!startCat) {
+    // Unknown visualizer in URL — fall back to spectrum / first available
+    startViz = 'spectrum';
+    for (const [cat, names] of categories) {
+      if (names.includes(startViz)) { startCat = cat; break; }
+    }
+    startCat = startCat ?? categories[0]?.[0];
+    if (!startViz) startViz = categories.find(([c]) => c === startCat)?.[1]?.[0];
+  }
+
+  if (startCat) catSelect.value = startCat;
+  populateVizSelect(catSelect.value, startViz);
+
+  if (urlConfigB64) pendingUrlConfig = decodeConfig(urlConfigB64);
+
   makeViz(vizSelect.value);
 
   // Show system audio button only on supported browsers (Chrome/Edge desktop)
@@ -82,7 +176,22 @@ function populateVizSelect(catName, preferredViz = null) {
 function makeViz(name) {
   viz?.free?.();
   viz = new WebViz(name, renderer.cols, renderer.rows);
+
+  // Apply config from URL on first load (one-shot)
+  if (pendingUrlConfig) {
+    const cfg = pendingUrlConfig;
+    pendingUrlConfig = null;
+    try {
+      const merged = viz.set_config(cfg);
+      try { localStorage.setItem(STORAGE_PREFIX + name, merged); } catch { /* quota */ }
+      buildSettingsUI(merged);
+      updateUrlViz(name);
+      return;
+    } catch { /* fall through to normal load */ }
+  }
+
   loadSettings(name);
+  updateUrlViz(name);
 }
 
 // ── Settings UI ───────────────────────────────────────────────────────────────
@@ -161,6 +270,17 @@ function buildSettingsUI(schemaJson) {
     settingsPanel.appendChild(wrap);
   }
 
+  // Right-side controls: Share + Reset
+  const rightGroup = document.createElement('div');
+  rightGroup.className = 'settings-right';
+
+  const shareBtn = document.createElement('button');
+  shareBtn.id        = 'share-btn';
+  shareBtn.textContent = '⎘';
+  shareBtn.title     = 'Copy share link';
+  shareBtn.addEventListener('click', () => copyShareLink(shareBtn));
+  rightGroup.appendChild(shareBtn);
+
   const resetBtn = document.createElement('button');
   resetBtn.id          = 'reset-btn';
   resetBtn.textContent = 'Reset';
@@ -171,7 +291,9 @@ function buildSettingsUI(schemaJson) {
     buildSettingsUI(viz.get_config());
     applySettings();
   });
-  settingsPanel.appendChild(resetBtn);
+  rightGroup.appendChild(resetBtn);
+
+  settingsPanel.appendChild(rightGroup);
 }
 
 function applySettings() {
